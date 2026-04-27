@@ -1,0 +1,3553 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cuadre de Caja</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Jost:wght@300;400;500;600&display=swap');
+
+  :root {
+    /* Paleta Farmacia del Globo — teal corporativo */
+    --teal:     #2a8080;   /* color principal del logo */
+    --teal2:    #1e6666;   /* teal oscuro hover */
+    --teal3:    #3a9898;   /* teal medio */
+    --teal-lt:  #e8f4f4;   /* teal muy claro fondos */
+    --teal-mid: #c2dede;   /* teal claro bordes */
+
+    --bg:       #f4f8f8;   /* blanco con toque teal muy suave */
+    --surface:  #ffffff;
+    --surface2: #eef4f4;
+    --border:   #c8d8d8;
+    --border2:  #a0bebe;
+
+    --text:     #1a2e2e;   /* casi negro con tono teal */
+    --muted:    #5a7878;
+    --muted2:   #8aabab;
+
+    --ok:       #1e6666;
+    --err:      #c0392b;
+    --warn:     #d4860a;
+
+    --green:    var(--teal);
+    --green2:   var(--teal2);
+    --green-lt: var(--teal-lt);
+    --gold:     var(--teal3);
+    --gold-lt:  var(--teal-lt);
+    --accent:   var(--teal);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(45,80,22,.06) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 100%, rgba(139,105,20,.05) 0%, transparent 60%);
+    color: var(--text);
+    font-family: 'Jost', sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 32px;
+    background: var(--teal);
+    border-bottom: 3px solid rgba(255,255,255,.2);
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 16px rgba(26,46,46,.3);
+  }
+  .header-brand { display: flex; align-items: center; gap: 14px; }
+  .brand-text { display: flex; flex-direction: column; gap: 1px; }
+  .brand-name {
+    font-family: 'Jost', sans-serif; font-weight: 700;
+    font-size: 1.05rem; letter-spacing: .1em;
+    color: #ffffff; line-height: 1.1;
+  }
+  .brand-sub {
+    font-family: 'Jost', sans-serif; font-weight: 300;
+    font-size: .62rem; letter-spacing: .25em;
+    color: rgba(255,255,255,.7); line-height: 1;
+  }
+  .brand-app {
+    font-family: 'Jost', sans-serif; font-weight: 300;
+    font-size: .58rem; letter-spacing: .12em; text-transform: uppercase;
+    color: rgba(255,255,255,.45); margin-top: 2px;
+  }
+  .header-right { display: flex; align-items: center; gap: 14px; }
+  #saveIndicator {
+    font-size: .7rem; color: rgba(255,255,255,.7);
+    font-family: 'DM Mono', monospace; display: none;
+    background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px;
+  }
+  .month-selector { display: flex; align-items: center; gap: 8px; }
+  .month-selector label { font-size: .73rem; color: rgba(255,255,255,.65); letter-spacing: .04em; }
+  .month-selector input[type=month] {
+    background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+    color: #ffffff; padding: 6px 10px; border-radius: 5px;
+    font-family: 'DM Mono', monospace; font-size: .8rem;
+  }
+  .month-selector input[type=month]:focus { outline: none; border-color: rgba(255,255,255,.6); }
+
+  main { display: grid; grid-template-columns: 290px 1fr; min-height: calc(100vh - 65px); }
+
+  aside {
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 18px; display: flex; flex-direction: column; gap: 20px;
+  }
+  .panel-title {
+    font-size: .65rem; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px; font-weight: 500;
+  }
+
+  .upload-zone {
+    border: 1.5px dashed var(--border2); border-radius: 8px; padding: 16px 12px;
+    text-align: center; cursor: pointer; transition: all .2s; position: relative;
+    background: var(--surface2);
+  }
+  .upload-zone:hover { border-color: var(--green); background: var(--green-lt); }
+  .upload-zone.loaded { border-color: var(--green); border-style: solid; background: var(--green-lt); }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .upload-zone .icon { font-size: 1.5rem; margin-bottom: 5px; }
+  .upload-zone .label { font-size: .78rem; color: var(--muted); font-weight: 500; }
+  .upload-zone .status { font-size: .72rem; color: var(--green); margin-top: 4px; font-family: 'DM Mono', monospace; }
+
+  .steps { display: flex; flex-direction: column; gap: 4px; }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px; border-radius: 6px;
+    font-size: .78rem; color: var(--muted); transition: all .2s;
+  }
+  .step.active { background: var(--green-lt); color: var(--green); }
+  .step.done { color: var(--green2); }
+  .step .num {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--surface2); display: flex; align-items: center; justify-content: center;
+    font-size: .65rem; font-family: 'DM Mono', monospace; flex-shrink: 0;
+    border: 1px solid var(--border);
+  }
+  .step.active .num { background: var(--green); color: #fff; border-color: var(--green); }
+  .step.done .num { background: transparent; border-color: var(--green2); color: var(--green2); }
+
+  section.content { padding: 28px 32px; overflow-y: auto; }
+
+  .tab-nav {
+    display: flex; gap: 2px; margin-bottom: 24px;
+    border-bottom: 2px solid var(--border);
+  }
+  .tab-btn {
+    background: none; border: none; color: var(--muted);
+    padding: 10px 18px; font-family: 'Jost', sans-serif; font-size: .82rem; font-weight: 500;
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s;
+  }
+  .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  .day-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    gap: 8px; margin-bottom: 22px;
+  }
+  .day-grid-header {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    gap: 8px; margin-bottom: 4px;
+  }
+  .day-grid-header-cell {
+    text-align: center; font-size: .68rem; font-weight: 600;
+    color: var(--teal); letter-spacing: .08em; text-transform: uppercase;
+    padding: 4px 0;
+  }
+  .day-grid-empty {
+    border-radius: 8px; min-height: 80px;
+  }
+  .day-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; cursor: pointer; transition: all .2s;
+  }
+  .day-card:hover { border-color: var(--green2); box-shadow: 0 2px 8px rgba(45,80,22,.1); }
+  .day-card.selected { border-color: var(--green); background: var(--green-lt); }
+  .day-card.filled { border-color: #8ab06a; }
+  .day-card .dc-date { font-size: .68rem; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .day-card .dc-label { font-size: .88rem; font-weight: 600; margin: 3px 0 6px; font-family: 'Cormorant Garamond', serif; }
+  .day-card .dc-bar { height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .day-card .dc-bar-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width .4s; }
+  .day-card .dc-total { font-size: .72rem; color: var(--green); font-family: 'DM Mono', monospace; margin-top: 6px; }
+
+  .emp-section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin-bottom: 20px;
+    box-shadow: 0 1px 4px rgba(42,36,24,.06);
+  }
+  .emp-section h3 {
+    font-size: 1rem; font-weight: 600; margin-bottom: 14px;
+    font-family: 'Cormorant Garamond', serif; color: var(--teal);
+    border-bottom: 1px solid var(--border); padding-bottom: 10px;
+  }
+  .emp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .emp-row { display: flex; align-items: center; gap: 8px; }
+  .emp-name { font-size: .78rem; min-width: 76px; font-weight: 500; }
+  .emp-input {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 8px; border-radius: 5px;
+    font-family: 'DM Mono', monospace; font-size: .83rem; width: 88px; transition: border-color .2s;
+  }
+  .emp-input:focus { outline: none; border-color: var(--green); background: #fff; }
+
+  .field-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: .68rem; color: var(--muted); letter-spacing: .07em; text-transform: uppercase; font-weight: 500; }
+  .field input {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 5px;
+    font-family: 'DM Mono', monospace; font-size: .83rem; transition: border-color .2s;
+  }
+  .field input:focus { outline: none; border-color: var(--green); background: #fff; }
+  .field input[readonly] { background: var(--surface2); color: var(--muted2); }
+
+  .summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid var(--border); font-size: .83rem;
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row .lbl { color: var(--muted); }
+  .summary-row .val { font-family: 'DM Mono', monospace; font-weight: 500; }
+
+  .diff-badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: 20px; font-size: .75rem;
+    font-family: 'DM Mono', monospace; font-weight: 500;
+  }
+  .diff-badge.ok  { background: var(--green-lt); color: var(--ok); border: 1px solid #8ab06a; }
+  .diff-badge.warn { background: #f5e0e0; color: var(--err); border: 1px solid #d4a0a0; }
+
+  .data-table-wrap { overflow-x: auto; margin-top: 8px; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  table.data-table th {
+    background: var(--green); color: rgba(240,228,192,.85);
+    padding: 9px 12px; text-align: right; font-weight: 500;
+    font-size: .68rem; letter-spacing: .08em; white-space: nowrap;
+    border-bottom: 2px solid var(--gold);
+  }
+  table.data-table th:first-child { text-align: left; }
+  table.data-table td {
+    padding: 8px 12px; text-align: right;
+    font-family: 'DM Mono', monospace; border-bottom: 1px solid var(--border);
+    white-space: nowrap; background: var(--surface);
+  }
+  table.data-table td:first-child { text-align: left; color: var(--muted); font-family: 'Jost', sans-serif; }
+  table.data-table tr:hover td { background: var(--green-lt); }
+  .td-ok   { color: var(--ok); font-weight: 500; }
+  .td-err  { color: var(--err); font-weight: 500; }
+  .td-warn { color: var(--warn); }
+
+  .btn {
+    background: var(--green); color: var(--gold-lt);
+    border: none; padding: 10px 22px; border-radius: 6px;
+    font-family: 'Jost', sans-serif; font-size: .85rem; font-weight: 600;
+    cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: 8px;
+    box-shadow: 0 2px 6px rgba(45,80,22,.25);
+  }
+  .btn:hover { background: var(--green2); transform: translateY(-1px); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-ghost {
+    background: transparent; color: rgba(240,228,192,.75);
+    border: 1px solid rgba(240,228,192,.3); padding: 6px 14px; border-radius: 5px;
+    font-family: 'Jost', sans-serif; font-size: .75rem; cursor: pointer; transition: all .2s;
+  }
+  .btn-ghost:hover { border-color: rgba(240,228,192,.7); color: var(--gold-lt); }
+  .btn-ghost.dark { color: var(--muted); border-color: var(--border); background: transparent; }
+  .btn-ghost.dark:hover { border-color: var(--green); color: var(--green); background: var(--green-lt); }
+
+  .add-emp { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .add-emp input {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 7px 10px; border-radius: 5px;
+    font-family: 'Jost', sans-serif; font-size: .82rem;
+  }
+  .add-emp input:focus { outline: none; border-color: var(--green); background: #fff; }
+
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .section-head h2 {
+    font-family: 'Cormorant Garamond', serif; font-size: 1.3rem; font-weight: 600;
+    color: var(--teal);
+  }
+  .chip {
+    background: var(--teal-lt); border: 1px solid var(--teal-mid);
+    padding: 3px 12px; border-radius: 20px; font-size: .7rem; color: var(--teal2);
+    font-family: 'DM Mono', monospace;
+  }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state .emoji { font-size: 2.5rem; margin-bottom: 12px; opacity: .6; }
+  .empty-state p { font-size: .85rem; line-height: 1.7; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--green); border: 1px solid var(--gold);
+    color: var(--gold-lt); padding: 12px 20px; border-radius: 8px;
+    font-size: .82rem; z-index: 999; transform: translateY(80px);
+    transition: transform .3s; opacity: 0;
+    font-family: 'Jost', sans-serif; box-shadow: 0 4px 16px rgba(45,80,22,.3);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  .saldo-inicial {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--teal-lt); border: 1px solid var(--teal-mid);
+    border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;
+  }
+  .saldo-inicial label { font-size: .78rem; color: var(--teal2); white-space: nowrap; font-weight: 600; }
+  .saldo-inicial input {
+    background: #fff; border: 1px solid var(--teal-mid);
+    color: var(--text); padding: 7px 12px; border-radius: 5px;
+    font-family: 'DM Mono', monospace; font-size: .95rem; width: 140px;
+  }
+  .saldo-inicial input:focus { outline: none; border-color: var(--green); }
+  .saldo-inicial span { font-size: .75rem; color: var(--teal2); opacity: .8; }
+
+
+  /* ── Libro ── */
+  .libro-add-bar {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .libro-add-bar select, .libro-add-bar input[type=text], .libro-add-bar input[type=number] {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 5px;
+    font-family: 'Jost', sans-serif; font-size: .82rem;
+  }
+  .libro-add-bar select { min-width: 180px; }
+  .libro-add-bar input[type=text] { min-width: 160px; }
+  .libro-add-bar input[type=number] { width: 110px; font-family: 'DM Mono', monospace; }
+  .libro-add-bar select:focus, .libro-add-bar input:focus { outline: none; border-color: var(--teal); background: #fff; }
+  .libro-entry-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; padding: 10px 14px; margin-bottom: 6px;
+    font-size: .83rem;
+  }
+  .libro-entry-concept { flex: 1; font-weight: 500; }
+  .libro-entry-amount { font-family: 'DM Mono', monospace; font-weight: 600; min-width: 90px; text-align: right; }
+  .libro-entry-amount.pos { color: var(--teal); }
+  .libro-entry-amount.neg { color: var(--err); }
+  .libro-entry-del { background: none; border: none; cursor: pointer; color: var(--muted2); font-size: .85rem; padding: 0 4px; }
+  .libro-entry-del:hover { color: var(--err); }
+  .libro-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    box-shadow: 0 1px 4px rgba(42,128,128,.06);
+    transition: border-color .2s;
+  }
+  .libro-card:hover { border-color: var(--teal-mid); }
+  .libro-card-gasto { border-left: 3px solid var(--err); }
+  .libro-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .libro-concept {
+    font-family: 'Cormorant Garamond', serif; font-size: 1rem;
+    font-weight: 600; color: var(--teal);
+  }
+  .libro-sign-toggle { display: flex; gap: 4px; }
+  .sign-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); padding: 3px 8px; border-radius: 4px;
+    font-family: 'Jost', sans-serif; font-size: .68rem; cursor: pointer;
+    transition: all .2s;
+  }
+  .sign-btn.active.pos { background: var(--teal-lt); border-color: var(--teal); color: var(--teal); font-weight: 600; }
+  .sign-btn.active.neg { background: #fde8e8; border-color: var(--err); color: var(--err); font-weight: 600; }
+  .libro-tag-gasto {
+    font-size: .7rem; color: var(--err); background: #fde8e8;
+    border: 1px solid #f5c0c0; padding: 2px 8px; border-radius: 4px;
+    font-family: 'Jost', sans-serif; font-weight: 500;
+  }
+  .libro-input {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 12px; border-radius: 6px;
+    font-family: 'DM Mono', monospace; font-size: 1.1rem; font-weight: 500;
+    transition: border-color .2s; text-align: right;
+  }
+  .libro-input:focus { outline: none; border-color: var(--teal); background: #fff; }
+  .libro-resumen {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .libro-resumen-row { display: flex; flex-direction: column; }
+  .libro-resumen-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+    font-size: .85rem;
+  }
+  .libro-resumen-item .li-concept { color: var(--muted); }
+  .libro-resumen-item .li-val { font-family: 'DM Mono', monospace; font-weight: 500; }
+  .li-val.pos { color: var(--teal); }
+  .li-val.neg { color: var(--err); }
+  .libro-resumen-total {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; background: var(--teal); color: #fff;
+  }
+  .libro-resumen-total span:first-child { font-weight: 600; letter-spacing: .04em; font-size: .85rem; }
+  .libro-total-val { font-family: 'DM Mono', monospace; font-size: 1.1rem; font-weight: 600; }
+
+
+  /* ── Alertas y notas ── */
+  .day-card .dc-alert {
+    display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap;
+  }
+  .alert-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    display: inline-block;
+  }
+  .alert-dot.red    { background: #e53935; }
+  .alert-dot.yellow { background: #f9a825; }
+  .alert-dot.blue   { background: #1e88e5; }
+  .alert-dot.green  { background: #2d8a74; }
+
+  .day-card.alert-red    { border-color: #e53935; background: #fff5f5; }
+  .day-card.alert-yellow { border-color: #f9a825; background: #fffdf0; }
+  .day-card.alert-green  { border-color: #2d8a74; background: var(--teal-lt); }
+
+  .notas-field {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 9px 12px; border-radius: 6px;
+    font-family: 'Jost', sans-serif; font-size: .82rem; resize: vertical;
+    min-height: 60px; margin-top: 10px; transition: border-color .2s;
+  }
+  .notas-field:focus { outline: none; border-color: var(--teal); background: #fff; }
+  .notas-label { font-size: .68rem; color: var(--muted); letter-spacing: .07em;
+    text-transform: uppercase; font-weight: 500; margin-top: 14px; display: block; }
+
+  /* ── Modal validación ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(26,46,46,.5);
+    z-index: 500; display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .modal-overlay.show { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface); border-radius: 14px; padding: 28px 32px;
+    max-width: 480px; width: 90%; box-shadow: 0 8px 40px rgba(26,46,46,.3);
+    border: 1px solid var(--border);
+  }
+  .modal h3 { font-family: 'Cormorant Garamond',serif; font-size: 1.3rem;
+    color: var(--teal); margin-bottom: 6px; }
+  .modal p  { font-size: .82rem; color: var(--muted); margin-bottom: 16px; }
+  .modal-alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+  .modal-alert-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 7px; font-size: .82rem;
+  }
+  .modal-alert-item.red    { background: #fff5f5; border: 1px solid #ffcdd2; }
+  .modal-alert-item.yellow { background: #fffdf0; border: 1px solid #ffe082; }
+  .modal-alert-item.blue   { background: #e8f4fd; border: 1px solid #bbdefb; }
+  .modal-alert-item .mai-icon { font-size: 1rem; }
+  .modal-alert-item .mai-text { flex: 1; }
+  .modal-alert-item .mai-date { font-family: 'DM Mono',monospace; font-size: .75rem;
+    color: var(--muted); }
+  .modal-btn-row { display: flex; gap: 10px; justify-content: flex-end; }
+
+
+  /* ── Modo oscuro ── */
+  body.dark {
+    --bg:       #0f1a1a;
+    --surface:  #1a2a2a;
+    --surface2: #1f3232;
+    --border:   #2a4040;
+    --border2:  #3a5555;
+    --teal:     #3aa8a8;
+    --teal2:    #2a8888;
+    --teal3:    #4abcbc;
+    --teal-lt:  #1a3232;
+    --teal-mid: #2a5050;
+    --text:     #e0eded;
+    --muted:    #7aabab;
+    --muted2:   #4a8080;
+    --ok:       #3aa8a8;
+    --err:      #ff6b6b;
+    --warn:     #ffcc44;
+    --gold:     #4abcbc;
+    --gold-lt:  #1a3232;
+  }
+  body.dark header {
+    background: #0a1212;
+    border-bottom-color: #2a5050;
+  }
+  body.dark .upload-zone { background: var(--surface2); }
+  body.dark .upload-zone:hover { background: var(--teal-lt); }
+  body.dark .upload-zone.loaded { background: var(--teal-lt); }
+  body.dark .emp-input:focus,
+  body.dark .field input:focus,
+  body.dark .add-emp input:focus,
+  body.dark .libro-add-bar input:focus,
+  body.dark .libro-add-bar select:focus,
+  body.dark .notas-field:focus { background: #1f3535; }
+  body.dark .emp-input,
+  body.dark .field input,
+  body.dark .add-emp input,
+  body.dark .libro-input,
+  body.dark .libro-add-bar input,
+  body.dark .libro-add-bar select,
+  body.dark .notas-field { background: var(--surface2); color: var(--text); }
+  body.dark .lucia-add-row select,
+  body.dark .lucia-add-row input { background: var(--surface2); border-color: var(--teal-mid); color: var(--text); }
+  body.dark .lucia-ticket { background: var(--surface2); }
+  body.dark .libro-entry-row { background: var(--surface); border-color: var(--border); }
+  body.dark .modal { background: var(--surface); border-color: var(--border); }
+  body.dark .modal-alert-item.red    { background: #2a1515; border-color: #5a2020; }
+  body.dark .modal-alert-item.yellow { background: #2a2510; border-color: #5a5020; }
+  body.dark .modal-alert-item.blue   { background: #101a2a; border-color: #203050; }
+  body.dark .day-card.alert-red    { background: #2a1515; }
+  body.dark .day-card.alert-yellow { background: #2a2510; }
+  body.dark .day-card.alert-green  { background: var(--teal-lt); }
+  body.dark table.data-table td { background: var(--surface); }
+  body.dark table.data-table tr:hover td { background: var(--teal-lt); }
+  body.dark .saldo-inicial { background: var(--teal-lt); border-color: var(--teal-mid); }
+  body.dark .saldo-inicial input { background: var(--surface2); border-color: var(--teal-mid); }
+  body.dark .libro-resumen { background: var(--surface); }
+  body.dark .sign-btn { background: var(--surface2); border-color: var(--border); color: var(--muted); }
+  body.dark .sign-btn.active.pos { background: var(--teal-lt); }
+  body.dark .sign-btn.active.neg { background: #2a1515; border-color: #5a2020; }
+  body.dark .lucia-section { background: var(--teal-lt); border-color: var(--teal-mid); }
+  body.dark .month-selector input[type=month] { color-scheme: dark; }
+
+  /* Toggle button */
+  .dark-toggle {
+    background: none; border: 1px solid rgba(255,255,255,.25);
+    color: rgba(255,255,255,.8); padding: 5px 10px; border-radius: 6px;
+    cursor: pointer; font-size: .85rem; transition: all .2s;
+    font-family: 'Jost', sans-serif;
+  }
+  .dark-toggle:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.5); }
+
+
+  /* ── Estadísticas ── */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; margin-bottom: 24px;
+  }
+  .libro-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+    box-shadow: 0 1px 4px rgba(42,128,128,.06);
+    transition: border-color .2s;
+  }
+  .kpi-card:hover { border-color: var(--teal-mid); }
+  .kpi-card.kpi-accent { border-left: 4px solid var(--teal); }
+  .kpi-card.kpi-warn   { border-left: 4px solid var(--err); }
+  .kpi-card.kpi-gold   { border-left: 4px solid var(--warn); }
+  .kpi-card.kpi-wide   { grid-column: span 3; }
+  .kpi-card.kpi-wide2  { grid-column: span 2; }
+  .kpi-label {
+    font-size: .7rem; color: var(--muted); letter-spacing: .1em;
+    text-transform: uppercase; font-weight: 500; margin-bottom: 8px;
+  }
+  .kpi-value {
+    font-family: 'DM Mono', monospace; font-size: 1.6rem; font-weight: 600;
+    color: var(--text); line-height: 1.1;
+  }
+  .kpi-value.teal  { color: var(--teal); }
+  .kpi-value.err   { color: var(--err); }
+  .kpi-value.warn  { color: var(--warn); }
+  .kpi-sub {
+    font-size: .75rem; color: var(--muted); margin-top: 5px;
+    font-family: 'Jost', sans-serif;
+  }
+  .kpi-sub span { color: var(--teal); font-weight: 500; }
+
+  /* Barra progreso variable Lucía */
+  .lucia-bar-wrap {
+    margin-top: 12px; background: var(--surface2); border-radius: 6px;
+    height: 10px; overflow: hidden;
+  }
+  .lucia-bar-fill {
+    height: 100%; border-radius: 6px; transition: width .6s ease;
+    background: linear-gradient(90deg, var(--teal), var(--teal3));
+  }
+  .lucia-bar-fill.over { background: linear-gradient(90deg, var(--teal), var(--warn)); }
+
+  /* Tabla top días */
+  .stats-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: 8px; }
+  .stats-table th {
+    background: var(--teal); color: #fff; padding: 7px 12px;
+    text-align: right; font-weight: 500; font-size: .7rem; letter-spacing: .06em;
+  }
+  .stats-table th:first-child { text-align: left; }
+  .stats-table td {
+    padding: 7px 12px; border-bottom: 1px solid var(--border);
+    text-align: right; font-family: 'DM Mono', monospace;
+  }
+  .stats-table td:first-child { text-align: left; color: var(--muted); font-family: 'Jost', sans-serif; }
+  .stats-table tr:hover td { background: var(--teal-lt); }
+
+  /* Empleada ranking */
+  .emp-ranking { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .emp-rank-row { display: flex; align-items: center; gap: 10px; font-size: .82rem; }
+  .emp-rank-name { min-width: 80px; }
+  .emp-rank-bar-wrap { flex: 1; background: var(--surface2); border-radius: 4px; height: 8px; overflow: hidden; }
+  .emp-rank-bar { height: 100%; background: var(--teal); border-radius: 4px; transition: width .5s; }
+  .emp-rank-val { font-family: 'DM Mono', monospace; font-size: .78rem; color: var(--teal); min-width: 70px; text-align: right; }
+
+
+  /* ── Google Drive ── */
+  .drive-zone {
+    border: 1.5px solid var(--teal-mid); border-radius: 8px;
+    padding: 12px 14px; background: var(--teal-lt);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .drive-zone .drive-title {
+    font-size: .7rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--teal); font-weight: 600; display: flex; align-items: center; gap: 6px;
+  }
+  .drive-btn {
+    background: var(--teal); color: #fff; border: none;
+    padding: 8px 12px; border-radius: 6px; font-family: 'Jost', sans-serif;
+    font-size: .78rem; font-weight: 600; cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%;
+  }
+  .drive-btn:hover { background: var(--teal2); }
+  .drive-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .drive-btn.secondary {
+    background: transparent; color: var(--teal);
+    border: 1px solid var(--teal-mid); font-weight: 500;
+  }
+  .drive-btn.secondary:hover { background: var(--surface); }
+  .drive-status { font-size: .72rem; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .drive-status.ok { color: var(--teal); }
+  .drive-status.err { color: var(--err); }
+  body.dark .drive-zone { background: var(--teal-lt); border-color: var(--teal-mid); }
+
+
+  /* ── Arqueo ── */
+  .arqueo-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; margin-bottom: 24px;
+  }
+  .arqueo-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .arqueo-card-label {
+    font-size: .72rem; color: var(--muted); letter-spacing: .1em;
+    text-transform: uppercase; font-weight: 500; margin-bottom: 12px;
+  }
+  .arqueo-input-wrap {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .arqueo-input {
+    flex: 1; background: var(--surface2); border: 1.5px solid var(--border);
+    color: var(--text); padding: 10px 12px; border-radius: 7px;
+    font-family: 'DM Mono', monospace; font-size: 1.1rem; font-weight: 600;
+    text-align: right; transition: border-color .2s;
+  }
+  .arqueo-input:focus { outline: none; border-color: var(--teal); background: #fff; }
+  .arqueo-eur { font-family: 'DM Mono', monospace; color: var(--muted); font-size: .9rem; }
+  .arqueo-resumen {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px 24px; max-width: 520px;
+  }
+  .arqueo-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: .85rem;
+  }
+  .arqueo-lbl { color: var(--muted); }
+  .arqueo-val { font-family: 'DM Mono', monospace; font-weight: 500; }
+  .arqueo-val.err { color: var(--err); }
+  .arqueo-divider {
+    height: 1px; background: var(--border); margin: 12px 0;
+  }
+  .arqueo-diff-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+  }
+  .arqueo-diff-badge {
+    font-family: 'DM Mono', monospace; font-size: 1.3rem; font-weight: 700;
+    padding: 4px 14px; border-radius: 8px;
+  }
+  .arqueo-diff-badge.ok  { background: var(--teal-lt); color: var(--teal); }
+  .arqueo-diff-badge.err { background: #fff5f5; color: var(--err); }
+  body.dark .arqueo-input:focus { background: #1f3535; }
+  body.dark .arqueo-input { background: var(--surface2); }
+  body.dark .arqueo-diff-badge.err { background: #2a1515; }
+
+  .caixa-badge { font-size:.72rem; font-family:'DM Mono',monospace; color:var(--green); background:var(--green-lt); padding:2px 7px; border-radius:4px; }
+
+  /* ── Lucía tickets ── */
+  .lucia-section {
+    background: var(--teal-lt); border: 1.5px solid var(--teal-mid);
+    border-radius: 10px; padding: 16px 18px; margin-top: 16px;
+  }
+  .lucia-section h4 {
+    font-family: 'Cormorant Garamond', serif; font-size: .95rem; font-weight: 600;
+    color: var(--teal); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .lucia-total {
+    font-family: 'DM Mono', monospace; font-size: .8rem;
+    background: var(--teal); color: #fff; padding: 2px 10px; border-radius: 20px; margin-left: auto;
+  }
+  .lucia-add-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .lucia-add-row select, .lucia-add-row input {
+    background: #fff; border: 1px solid var(--teal-mid);
+    color: var(--text); padding: 7px 10px; border-radius: 5px;
+    font-family: 'Jost', sans-serif; font-size: .82rem;
+  }
+  .lucia-add-row select { min-width: 180px; }
+  .lucia-add-row input[type=number] { width: 100px; font-family: 'DM Mono', monospace; }
+  .lucia-add-row select:focus, .lucia-add-row input:focus { outline: none; border-color: var(--teal); }
+  .lucia-ticket-list { display: flex; flex-direction: column; gap: 5px; }
+  .lucia-ticket {
+    display: flex; align-items: center; gap: 10px;
+    background: #fff; border: 1px solid var(--teal-mid);
+    border-radius: 6px; padding: 7px 12px; font-size: .82rem;
+  }
+  .lucia-ticket .t-client { flex: 1; font-weight: 500; color: var(--text); }
+  .lucia-ticket .t-amount { font-family: 'DM Mono', monospace; color: var(--teal); font-weight: 600; min-width: 70px; text-align: right; }
+  .lucia-ticket .t-del { background: none; border: none; cursor: pointer; color: var(--muted2); font-size: .85rem; padding: 0 4px; }
+  .lucia-ticket .t-del:hover { color: var(--err); }
+  .lucia-empty { font-size: .78rem; color: var(--muted); font-style: italic; text-align: center; padding: 10px 0; }
+  .farmatic-badge { font-size:.72rem; font-family:'DM Mono',monospace; color:var(--gold); background:var(--gold-lt); padding:2px 7px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <!-- Logo globo SVG inline inspirado en el logo corporativo -->
+    <svg width="42" height="48" viewBox="0 0 42 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Globo -->
+      <ellipse cx="21" cy="19" rx="18" ry="17" fill="white" opacity="0.15"/>
+      <!-- Franjas del globo -->
+      <path d="M21 2 C10 2 3 10 3 19 C3 28 10 36 21 36 C32 36 39 28 39 19 C39 10 32 2 21 2Z" fill="white" opacity="0.9"/>
+      <!-- Franjas oscuras -->
+      <path d="M14 2.8 C12 6 11 12 11 19 C11 26 12 32 14 35.2 C11 33 8 28 7 22 Z" fill="rgba(42,128,128,0.9)"/>
+      <path d="M21 2 C19.5 2 18 8 18 19 C18 30 19.5 36 21 36 C22.5 36 24 30 24 19 C24 8 22.5 2 21 2Z" fill="rgba(42,128,128,0.9)"/>
+      <path d="M28 2.8 C30 6 31 12 31 19 C31 26 30 32 28 35.2 C31 33 34 28 35 22 Z" fill="rgba(42,128,128,0.9)"/>
+      <path d="M17 2.2 C15 5 14 11 14 19 C14 27 15 33 17 35.8 C14.5 34 12 30 11 25 Z" fill="rgba(42,128,128,0.5)"/>
+      <path d="M25 2.2 C27 5 28 11 28 19 C28 27 27 33 25 35.8 C27.5 34 30 30 31 25 Z" fill="rgba(42,128,128,0.5)"/>
+      <!-- Contorno globo -->
+      <path d="M21 2 C10 2 3 10 3 19 C3 28 10 36 21 36 C32 36 39 28 39 19 C39 10 32 2 21 2Z" fill="none" stroke="white" stroke-width="1.5" opacity="0.6"/>
+      <!-- Cuerdas -->
+      <line x1="16" y1="36" x2="15" y2="41" stroke="white" stroke-width="1.2" opacity="0.8"/>
+      <line x1="21" y1="36" x2="21" y2="41" stroke="white" stroke-width="1.2" opacity="0.8"/>
+      <line x1="26" y1="36" x2="27" y2="41" stroke="white" stroke-width="1.2" opacity="0.8"/>
+      <!-- Barquilla -->
+      <rect x="15" y="41" width="12" height="6" rx="2" fill="white" opacity="0.9"/>
+      <ellipse cx="21" cy="41" rx="6" ry="1.5" fill="white" opacity="0.6"/>
+    </svg>
+    <div class="brand-text">
+      <span class="brand-name">FARMACIA DEL GLOBO</span>
+      <span class="brand-sub">——— CARRETAS ———</span>
+      <span class="brand-app">Cuadre de Caja</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="saveIndicator">💾 guardado</span>
+    <div class="month-selector">
+      <label>Mes</label>
+      <input type="month" id="monthPicker">
+    </div>
+    <button class="dark-toggle" id="darkToggle" onclick="toggleDark()">🌙</button>
+    <button class="btn-ghost" onclick="clearState()">🗑 Borrar datos</button>
+  </div>
+</header>
+
+<main>
+  <!-- Sidebar -->
+  <aside>
+    <div>
+      <div class="panel-title">1. Carga de datos</div>
+
+      <!-- Google Drive -->
+      <div class="drive-zone" id="driveZone">
+        <div class="drive-title">
+          <svg width="14" height="14" viewBox="0 0 87.3 78" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+            <path d="M43.65 25L29.9 1.2C28.55 2 27.4 3.1 26.6 4.5L1.2 48.55A8.86 8.86 0 000 53.05h27.5z" fill="#00ac47"/>
+            <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 11.2z" fill="#ea4335"/>
+            <path d="M43.65 25L57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+            <path d="M59.8 53.05H27.5L13.75 76.85c1.35.8 2.9 1.15 4.5 1.15h50.8c1.6 0 3.15-.4 4.5-1.15z" fill="#2684fc"/>
+            <path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25l16.15 28.05H87.2c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+          </svg>
+          Google Drive — Farmatic
+        </div>
+        <div class="drive-status" id="driveStatus">Sin conectar</div>
+        <button class="drive-btn" id="driveBtnConnect" onclick="driveConnect()">
+          🔗 Conectar con Google
+        </button>
+        <button class="drive-btn secondary" id="driveBtnRefresh" onclick="driveLoadFarmatic()" style="display:none">
+          🔄 Cargar Farmatic desde Drive
+        </button>
+      </div>
+
+      <div class="upload-zone" id="zFarmatic">
+        <input type="file" accept=".xlsx,.xls" onchange="loadFarmatic(event)">
+        <div class="icon">💊</div>
+        <div class="label">Farmatic (ventas)</div>
+        <div class="status" id="stFarmatic">Selecciona el Excel</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="upload-zone" id="zCaixa">
+        <input type="file" accept=".xlsx,.xls" onchange="loadCaixa(event)">
+        <div class="icon">🏦</div>
+        <div class="label">La Caixa (banco)</div>
+        <div class="status" id="stCaixa">Selecciona el Excel</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="upload-zone" id="zForms">
+        <input type="file" accept=".xlsx,.xls" onchange="loadForms(event)">
+        <div class="icon">👥</div>
+        <div class="label">Efectivo empleadas (Forms)</div>
+        <div class="status" id="stForms">Selecciona el Excel</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel-title">Progreso</div>
+      <div class="steps" id="steps">
+        <div class="step active" id="s1"><div class="num">1</div>Cargar Farmatic</div>
+        <div class="step" id="s2"><div class="num">2</div>Cargar La Caixa</div>
+        <div class="step" id="s3"><div class="num">3</div>Introducir efectivo</div>
+        <div class="step" id="s4"><div class="num">4</div>Exportar Excel</div>
+      </div>
+    </div>
+
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:6px">
+      <button class="btn" style="width:100%" onclick="exportExcel()" id="btnExport" disabled>
+        ⬇ Exportar Excel
+      </button>
+      <button class="btn-ghost" style="width:100%;font-size:.75rem" onclick="exportBackupEfectivo()" title="Genera un Excel compatible con el botón de carga de efectivo">
+        💾 Backup efectivo empleadas
+      </button>
+      <button class="btn-ghost" style="width:100%;font-size:.75rem" onclick="importLuciaTickets()" title="Carga tickets de Lucía desde el Excel exportado por la app">
+        📥 Cargar tickets Lucía
+        <input type="file" id="luciaTicketsFile" accept=".xlsx" style="display:none" onchange="handleLuciaTicketsFile(event)">
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <section class="content">
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="showTab('efectivo')">💵 Efectivo diario</button>
+      <button class="tab-btn" onclick="showTab('resumen')">📊 Resumen</button>
+      <button class="tab-btn" onclick="showTab('cajas')">🗃 Cajas</button>
+      <button class="tab-btn" onclick="showTab('libro')">📒 Libro</button>
+      <button class="tab-btn" onclick="showTab('stats')">📈 Estadísticas</button>
+      <button class="tab-btn" onclick="showTab('arqueo')">🏦 Arqueo</button>
+    </div>
+
+    <!-- TAB: Efectivo -->
+    <div class="tab-pane active" id="tab-efectivo">
+      <div class="section-head">
+        <h2>Efectivo por día</h2>
+        <span class="chip" id="chipDays">0 días cargados</span>
+      </div>
+
+      <div id="emptyEfectivo" class="empty-state">
+        <div class="emoji">📂</div>
+        <p>Carga primero el Excel de Farmatic<br>para ver los días del mes.</p>
+      </div>
+
+      <div id="dayGridWrap" style="display:none">
+        <div class="saldo-inicial">
+          <label>💰 Saldo inicial de caja (€)</label>
+          <input type="number" id="saldoInicial" value="8949" step="0.01" oninput="recalcAll(); saveState()">
+          <span style="font-size:.8rem; color:var(--muted)">Importe en caja al inicio del mes</span>
+        </div>
+
+        <div class="day-grid" id="dayGrid"></div>
+
+        <!-- Day detail panel -->
+        <div class="emp-section" id="dayDetail" style="display:none">
+          <h3 id="detailTitle">Día —</h3>
+
+          <div class="field-group" style="margin-bottom:16px">
+            <div class="field">
+              <label>VISAS (banco)</label>
+              <input type="number" id="dVisas" readonly style="opacity:.6" step="0.01">
+            </div>
+            <div class="field">
+              <label>TICKET FARMATIC (venta farmacia)</label>
+              <input type="number" id="dTicket" readonly style="opacity:.6" step="0.01">
+            </div>
+            <div class="field">
+              <label>SOE (pendiente receta)</label>
+              <input type="number" id="dSoe" readonly style="opacity:.6" step="0.01">
+            </div>
+            <div class="field">
+              <label>GLOVO (€)</label>
+              <input type="number" id="dGlovo" value="0" step="0.01" oninput="dayChanged()" onfocus="if(this.value=='0')this.value=''" onblur="if(this.value=='')this.value='0'">
+            </div>
+            <div class="field">
+              <label>PROMOCIONES (€)</label>
+              <input type="number" id="dPromo" value="0" step="0.01" oninput="dayChanged()" onfocus="if(this.value=='0')this.value=''" onblur="if(this.value=='')this.value='0'">
+            </div>
+            <div class="field">
+              <label>GASTOS (€)</label>
+              <input type="number" id="dGastos" value="0" step="0.01" oninput="dayChanged()" onfocus="if(this.value=='0')this.value=''" onblur="if(this.value=='')this.value='0'">
+            </div>
+          </div>
+
+          <div style="font-size:.78rem; color:var(--muted); margin-bottom:10px; text-transform:uppercase; letter-spacing:.07em">
+            Efectivo recogido por empleada
+          </div>
+          <div class="emp-grid" id="empGrid"></div>
+
+          <div class="add-emp">
+            <input type="text" id="newEmpName" placeholder="Nombre empleada..." maxlength="30">
+            <button class="btn-ghost" onclick="addEmployee()">+ Añadir</button>
+          </div>
+
+          <!-- Tickets Lucía -->
+          <div class="lucia-section">
+            <h4>
+              Tickets pendientes · Lucía
+              <span class="lucia-total" id="luciaTotal">0,00 €</span>
+            </h4>
+            <div class="lucia-add-row">
+              <select id="luciaClient">
+                <option value="">— Cliente —</option>
+                <option>Ana Argüelles</option>
+                <option>Ana Huerta</option>
+                <option>Ana Taibo</option>
+                <option>Beatriz de Cominges</option>
+                <option>Blanca Huerta</option>
+                <option>Cecilia Pardo</option>
+                <option>D. Alex Muñoz</option>
+                <option>Enrique Huerta</option>
+                <option>Fabiola Guerrero</option>
+                <option>Fernando Huerta</option>
+                <option>Francisco Fernandez Daza</option>
+                <option>Gema Huerta</option>
+                <option>Inés García Paine</option>
+                <option>Lucía Lovera Guerrero</option>
+                <option>Miguel Asensio</option>
+                <option>Miriam Torrens</option>
+                <option>Paloma Carmona</option>
+                <option>Pilar González</option>
+                <option>Sebastián del Rey</option>
+                <option value="__new__">✏️ Nuevo cliente...</option>
+              </select>
+              <input type="text" id="luciaClientNew" placeholder="Nombre del cliente" style="display:none;min-width:160px">
+              <input type="number" id="luciaAmount" placeholder="Importe €" step="0.01" min="0">
+              <button class="btn-ghost dark" onclick="addLuciaTicket()">+ Añadir ticket</button>
+            </div>
+            <div class="lucia-ticket-list" id="luciaTicketList">
+              <div class="lucia-empty">Sin tickets por hoy</div>
+            </div>
+          </div>
+
+          <!-- Notas del día -->
+          <label class="notas-label">📝 Notas del día</label>
+          <textarea class="notas-field" id="dNotas" placeholder="Incidencias, observaciones..." oninput="notasChanged()"></textarea>
+
+          <!-- Day summary -->
+          <div style="background:var(--surface); border-radius:8px; padding:14px; margin-top:16px;">
+            <div class="summary-row"><span class="lbl">Dinero efectivo recogido</span><span class="val" id="sumDinero">—</span></div>
+            <div class="summary-row"><span class="lbl">Visas</span><span class="val" id="sumVisas">—</span></div>
+            <div class="summary-row"><span class="lbl">Glovo</span><span class="val" id="sumGlovo">—</span></div>
+            <div class="summary-row"><span class="lbl">Promociones</span><span class="val" id="sumPromo">—</span></div>
+            <div class="summary-row"><span class="lbl">Gastos</span><span class="val" id="sumGastos">—</span></div>
+            <div class="summary-row"><span class="lbl">Total real</span><span class="val" id="sumTotal">—</span></div>
+            <div class="summary-row">
+              <span class="lbl">Ticket Farmatic</span><span class="val" id="sumTicket">—</span>
+            </div>
+            <div class="summary-row" style="padding-top:12px;border-top:2px solid var(--border);margin-top:4px">
+              <span style="font-weight:600">Diferencia</span>
+              <span id="sumDiff" class="diff-badge ok">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Resumen -->
+    <div class="tab-pane" id="tab-resumen">
+      <div class="section-head">
+        <h2>Resumen mensual</h2>
+      </div>
+      <div id="emptyResumen" class="empty-state">
+        <div class="emoji">📊</div>
+        <p>Completa los datos de efectivo<br>para ver el resumen.</p>
+      </div>
+      <div id="resumenTable" style="display:none">
+        <div class="data-table-wrap">
+          <table class="data-table" id="tResumen"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Cajas -->
+    <div class="tab-pane" id="tab-cajas">
+      <div class="section-head">
+        <h2>Libro de cajas</h2>
+      </div>
+      <div id="emptyCajas" class="empty-state">
+        <div class="emoji">🗃</div>
+        <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
+      </div>
+      <div id="cajasTable" style="display:none">
+        <div class="data-table-wrap">
+          <table class="data-table" id="tCajas"></table>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- TAB: Libro -->
+    <div class="tab-pane" id="tab-libro">
+      <div class="section-head">
+        <h2>Libro de caja</h2>
+        <span class="chip" id="chipLibroTotal">0,00 €</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
+        Movimientos mensuales de efectivo. Goya, Téllez y Oviedo pueden ser positivos o negativos.<br>
+        Mónica &amp; Cris, Lucía y Extra Lucía son siempre gastos (negativos).
+      </p>
+
+      <div class="libro-grid">
+
+        <!-- GOYA -->
+        <div class="libro-card">
+          <div class="libro-card-header">
+            <span class="libro-concept">Goya</span>
+            <div class="libro-sign-toggle">
+              <button class="sign-btn active" id="signGoya_pos" onclick="setSign('Goya','pos')">+ Ingreso</button>
+              <button class="sign-btn" id="signGoya_neg" onclick="setSign('Goya','neg')">− Gasto</button>
+            </div>
+          </div>
+          <input class="libro-input" type="number" id="libroGoya" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- TÉLLEZ -->
+        <div class="libro-card">
+          <div class="libro-card-header">
+            <span class="libro-concept">Téllez</span>
+            <div class="libro-sign-toggle">
+              <button class="sign-btn active" id="signTellez_pos" onclick="setSign('Tellez','pos')">+ Ingreso</button>
+              <button class="sign-btn" id="signTellez_neg" onclick="setSign('Tellez','neg')">− Gasto</button>
+            </div>
+          </div>
+          <input class="libro-input" type="number" id="libroTellez" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- OVIEDO -->
+        <div class="libro-card">
+          <div class="libro-card-header">
+            <span class="libro-concept">Oviedo</span>
+            <div class="libro-sign-toggle">
+              <button class="sign-btn active" id="signOviedo_pos" onclick="setSign('Oviedo','pos')">+ Ingreso</button>
+              <button class="sign-btn" id="signOviedo_neg" onclick="setSign('Oviedo','neg')">− Gasto</button>
+            </div>
+          </div>
+          <input class="libro-input" type="number" id="libroOviedo" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- MÓNICA & CRIS — siempre gasto -->
+        <div class="libro-card libro-card-gasto">
+          <div class="libro-card-header">
+            <span class="libro-concept">Mónica &amp; Cris</span>
+            <span class="libro-tag-gasto">− Gasto</span>
+          </div>
+          <input class="libro-input" type="number" id="libroMonicaCris" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- LUCÍA — siempre gasto -->
+        <div class="libro-card libro-card-gasto">
+          <div class="libro-card-header">
+            <span class="libro-concept">Lucía</span>
+            <span class="libro-tag-gasto">− Gasto</span>
+          </div>
+          <input class="libro-input" type="number" id="libroLucia" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- EXTRA LUCÍA ≥100k — siempre gasto -->
+        <div class="libro-card libro-card-gasto">
+          <div class="libro-card-header">
+            <span class="libro-concept">Extra Lucía ≥100k</span>
+            <span class="libro-tag-gasto">− Gasto</span>
+          </div>
+          <input class="libro-input" type="number" id="libroExtraLucia" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+      </div>
+
+      <!-- Entrada libre -->
+      <div class="lucia-section" style="margin-bottom:18px">
+        <h4 style="font-family:'Cormorant Garamond',serif;font-size:.95rem;font-weight:600;color:var(--teal);margin-bottom:12px">
+          + Concepto libre
+        </h4>
+        <div class="lucia-add-row" style="flex-wrap:wrap">
+          <input type="text" id="customLabel" placeholder="Concepto..." style="min-width:160px;background:#fff;border:1px solid var(--teal-mid);color:var(--text);padding:7px 10px;border-radius:5px;font-family:'Jost',sans-serif;font-size:.82rem">
+          <input type="number" id="customAmount" placeholder="Importe €" step="0.01" min="0" style="width:100px;background:#fff;border:1px solid var(--teal-mid);color:var(--text);padding:7px 10px;border-radius:5px;font-family:'DM Mono',monospace;font-size:.82rem">
+          <select id="customType" style="background:#fff;border:1px solid var(--teal-mid);color:var(--text);padding:7px 10px;border-radius:5px;font-family:'Jost',sans-serif;font-size:.82rem">
+            <option value="med">Medicamentos (+/-)</option>
+            <option value="nomina">Nómina (gasto)</option>
+            <option value="gasto">Gasto</option>
+          </select>
+          <select id="customSign" style="background:#fff;border:1px solid var(--teal-mid);color:var(--text);padding:7px 10px;border-radius:5px;font-family:'Jost',sans-serif;font-size:.82rem">
+            <option value="pos">+ Ingreso</option>
+            <option value="neg">− Gasto</option>
+          </select>
+          <button class="btn-ghost dark" onclick="addCustomEntry()">+ Añadir</button>
+        </div>
+        <div id="customList" style="margin-top:10px;display:flex;flex-direction:column;gap:5px"></div>
+      </div>
+
+      <!-- Resumen libro -->
+      <div class="libro-resumen">
+        <div class="libro-resumen-row" id="libroRows"></div>
+        <div class="libro-resumen-total">
+          <span>Resultado neto</span>
+          <span class="libro-total-val" id="libroTotalVal">0,00 €</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Estadísticas -->
+    <div class="tab-pane" id="tab-stats">
+      <div class="section-head">
+        <h2>Estadísticas del mes</h2>
+        <span class="chip" id="statsChip">—</span>
+      </div>
+
+      <!-- KPI grid -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="empty-state">
+          <div class="emoji">📈</div>
+          <p>Carga los datos de Farmatic<br>para ver las estadísticas.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Arqueo -->
+    <div class="tab-pane" id="tab-arqueo">
+      <div class="section-head">
+        <h2>Arqueo de caja</h2>
+        <span class="chip" id="arqueoChip">—</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
+        Recuento físico del dinero en caja al cierre del mes. Los tickets de Lucía se descuentan automáticamente.
+      </p>
+
+      <div class="arqueo-grid">
+
+        <!-- Monedas -->
+        <div class="arqueo-card">
+          <div class="arqueo-card-label">🪙 Monedas</div>
+          <div class="arqueo-input-wrap">
+            <input type="number" class="arqueo-input" id="arqueoMonedas" placeholder="0,00" step="0.01" min="0" oninput="arqueoChanged()">
+            <span class="arqueo-eur">€</span>
+          </div>
+        </div>
+
+        <!-- Cambio (billetes de 5€) -->
+        <div class="arqueo-card">
+          <div class="arqueo-card-label">💵 Cambio (billetes de 5€)</div>
+          <div class="arqueo-input-wrap">
+            <input type="number" class="arqueo-input" id="arqueoCambio" placeholder="0,00" step="0.01" min="0" oninput="arqueoChanged()">
+            <span class="arqueo-eur">€</span>
+          </div>
+        </div>
+
+        <!-- Billetes grandes -->
+        <div class="arqueo-card">
+          <div class="arqueo-card-label">💶 Billetes</div>
+          <div class="arqueo-input-wrap">
+            <input type="number" class="arqueo-input" id="arqueoBilletes" placeholder="0,00" step="0.01" min="0" oninput="arqueoChanged()">
+            <span class="arqueo-eur">€</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Resultado — dos columnas -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px">
+
+        <!-- Col izquierda: cálculo -->
+        <div class="arqueo-resumen">
+          <div class="arqueo-row">
+            <span class="arqueo-lbl">Total físico en caja</span>
+            <span class="arqueo-val" style="font-weight:700" id="arqueoTotal">0,00 €</span>
+          </div>
+          <div style="display:none"><span id="arqueoLucia"></span><span id="arqueoNeto"></span></div>
+
+          <div class="arqueo-divider"></div>
+
+          <div class="arqueo-row">
+            <span class="arqueo-lbl">Efectivo esperado (Cajas)</span>
+            <span class="arqueo-val" id="arqueoEsperado">—</span>
+          </div>
+          <div class="arqueo-row">
+            <span class="arqueo-lbl">− Tickets Lucía</span>
+            <span class="arqueo-val err" id="arqueoEsperadoLucia">—</span>
+          </div>
+          <div class="arqueo-row">
+            <span class="arqueo-lbl">= Esperado en caja</span>
+            <span class="arqueo-val" id="arqueoEsperadoNeto" style="font-weight:700">—</span>
+          </div>
+
+          <div class="arqueo-divider"></div>
+
+          <div class="arqueo-diff-row">
+            <span style="font-weight:700;font-size:1rem">Diferencia</span>
+            <span class="arqueo-diff-badge" id="arqueoDiff">—</span>
+          </div>
+          <div style="font-size:.75rem;color:var(--muted);margin-top:6px" id="arqueoDiffMsg"></div>
+        </div>
+
+        <!-- Col derecha: guardar + histórico -->
+        <div class="arqueo-resumen">
+          <div style="font-size:.68rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">Histórico</div>
+          <button class="btn" style="width:100%;margin-bottom:14px" onclick="saveArqueoSnapshot()">
+            💾 Guardar resultado de hoy
+          </button>
+          <div id="arqueoHistorico"></div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+<!-- Validation Modal -->
+<div class="modal-overlay" id="validModal">
+  <div class="modal">
+    <h3>⚠️ Revisión antes de exportar</h3>
+    <p>Se han detectado las siguientes incidencias. Puedes exportar igualmente.</p>
+    <div class="modal-alerts" id="modalAlerts"></div>
+    <div class="modal-btn-row">
+      <button class="btn-ghost dark" onclick="closeModal()">Cancelar</button>
+      <button class="btn" onclick="closeModal(); doExport()">Exportar igualmente</button>
+    </div>
+  </div>
+</div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Persistencia ─────────────────────────────────────────────────────────
+const STORAGE_KEY = 'cuadre_caja_v3';
+
+function saveState() {
+  try {
+    const toSave = {
+      farmatic: state.farmatic,
+      caixa:    state.caixa,
+      cajero:   state.cajero,
+      caixaRawRows: state.caixaRawRows,
+      days:     state.days,
+      month:    state.month,
+      saldoInicial: document.getElementById('saldoInicial')?.value || '8949',
+      libro:    state.libro,
+      arqueo:   state.arqueo,
+      arqueoHistorico: state.arqueoHistorico
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    // Show save indicator briefly
+    const ind = document.getElementById('saveIndicator');
+    if (ind) { ind.style.display='inline'; clearTimeout(ind._t); ind._t = setTimeout(()=>ind.style.display='none', 2000); }
+  } catch(e) { console.warn('No se pudo guardar:', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    state.farmatic    = saved.farmatic    || {};
+    state.caixa       = saved.caixa       || {};
+    state.cajero      = saved.cajero      || {};
+    state.caixaRawRows = saved.caixaRawRows || [];
+    state.days        = saved.days        || {};
+    state.libro       = saved.libro       || state.libro;
+    state.month       = saved.month       || null;
+    state.arqueo          = saved.arqueo          || null;
+    state.arqueoHistorico = saved.arqueoHistorico || [];
+    if (saved.saldoInicial) {
+      const el = document.getElementById('saldoInicial');
+      if (el) el.value = saved.saldoInicial;
+    }
+    return Object.keys(state.farmatic).length > 0;
+  } catch(e) { console.warn('No se pudo restaurar:', e); return false; }
+}
+
+function clearState() {
+  if (!confirm('¿Seguro que quieres borrar todos los datos guardados? Esta acción no se puede deshacer.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  state.farmatic = {}; state.caixa = {}; state.days = {};
+  state.daysInMonth = []; state.selectedDay = null;
+  state.month = null;
+  document.getElementById('stFarmatic').textContent = 'Selecciona el Excel';
+  document.getElementById('stCaixa').textContent = 'Selecciona el Excel';
+  document.getElementById('zFarmatic').classList.remove('loaded');
+  document.getElementById('zCaixa').classList.remove('loaded');
+  document.getElementById('stForms').textContent = 'Selecciona el Excel';
+  document.getElementById('zForms').classList.remove('loaded');
+  document.getElementById('emptyEfectivo').style.display = 'block';
+  document.getElementById('dayGridWrap').style.display = 'none';
+  document.getElementById('dayDetail').style.display = 'none';
+  document.getElementById('emptyResumen').style.display = 'block';
+  document.getElementById('resumenTable').style.display = 'none';
+  document.getElementById('emptyCajas').style.display = 'block';
+  document.getElementById('cajasTable').style.display = 'none';
+  document.getElementById('btnExport').disabled = true;
+  for (let i=1;i<=4;i++) { document.getElementById('s'+i).classList.remove('done','active'); }
+  document.getElementById('s1').classList.add('active');
+  const now = new Date();
+  const mo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('monthPicker').value = mo;
+  state.month = mo;
+  toast('🗑 Datos borrados');
+}
+
+const state = {
+  farmatic: {},
+  caixa: {},
+  cajero: {},
+  caixaRawRows: [],
+  days: {},        // date string -> {employees:[{name,efectivo,glovo,ministerio}], glovo, promo, gastos}
+  month: null,     // 'YYYY-MM'
+  daysInMonth: [],
+  selectedDay: null,
+  arqueo: null,
+  arqueoHistorico: [],
+  defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Sergio','Ana','Nerea','Alicia','Lucía'],
+  libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
+};
+
+// ─── Init ──────────────────────────────────────────────────────────────────
+window.onload = () => {
+  const now = new Date();
+  const mo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  const restored = loadState();
+
+  if (restored) {
+    // Restore month picker
+    if (state.month) document.getElementById('monthPicker').value = state.month;
+    // Restore saldo inicial (already done in loadState but DOM may not have been ready)
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+    if (saved.saldoInicial) document.getElementById('saldoInicial').value = saved.saldoInicial;
+
+    // Restore upload badges
+    const nF = Object.keys(state.farmatic).length;
+    const nC = Object.keys(state.caixa).length;
+    if (nF > 0) {
+      document.getElementById('stFarmatic').textContent = `✓ ${nF} días (guardado)`;
+      document.getElementById('zFarmatic').classList.add('loaded');
+      setStep(1);
+    }
+    if (nC > 0) {
+      document.getElementById('stCaixa').textContent = `✓ ${nC} movimientos (guardado)`;
+      document.getElementById('zCaixa').classList.add('loaded');
+      setStep(2);
+    }
+    // Restore Forms badge if days have data
+    const nDays = Object.keys(state.days).filter(ds => state.days[ds]?.employees?.some(e=>e.efectivo>0)).length;
+    if (nDays > 0) {
+      document.getElementById('stForms').textContent = `✓ datos en ${nDays} días (guardado)`;
+      document.getElementById('zForms').classList.add('loaded');
+    }
+    rebuildDays();
+    restoreLibro();
+    toast('💾 Datos restaurados del último uso');
+  } else {
+    document.getElementById('monthPicker').value = mo;
+    state.month = mo;
+  }
+
+  document.getElementById('monthPicker').addEventListener('change', e => {
+    state.month = e.target.value;
+    saveState();
+    rebuildDays();
+  });
+  initDark();
+  initDriveUI();
+};
+
+function toDateStr(d) {
+  if (!d) return '';
+  if (d instanceof Date && !isNaN(d)) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    return `${yy}-${mm}-${dd}`;
+  }
+  if (typeof d === 'number' && d > 0) {
+    const serial = d > 59 ? d - 1 : d;
+    const epoch = new Date(1900, 0, 1);
+    epoch.setDate(epoch.getDate() + serial - 1);
+    return `${epoch.getFullYear()}-${String(epoch.getMonth()+1).padStart(2,'0')}-${String(epoch.getDate()).padStart(2,'0')}`;
+  }
+  if (typeof d === 'string') {
+    // ISO: 2026-03-01
+    let m = d.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    // Spanish text: 01/abr./2026  or  01/mar/2026  or  01/03/2026
+    const meses = {ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12};
+    m = d.match(/(\d{1,2})[\/\-]([a-záéíóú\.]+|\d{1,2})[\/\-](\d{4})/i);
+    if (m) {
+      const day  = m[1].padStart(2,'0');
+      const year = m[3];
+      let mon = parseInt(m[2]);
+      if (isNaN(mon)) {
+        const key = m[2].toLowerCase().replace(/\./g,'').slice(0,3);
+        mon = meses[key] || 0;
+      }
+      if (mon) return `${year}-${String(mon).padStart(2,'0')}-${day}`;
+    }
+  }
+  return '';
+}
+
+// ─── Load Farmatic ─────────────────────────────────────────────────────────
+function loadFarmatic(evt) {
+  const file = evt.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    state.farmatic = {};
+
+    // Find header row (contains 'fecha')
+    let hdr = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].some(c => c && c.toString().toLowerCase().includes('fecha'))) {
+        hdr = i; break;
+      }
+    }
+    if (hdr < 0) { toast('❌ No se encontró cabecera en Farmatic'); return; }
+
+    const cols = rows[hdr].map(c => (c||'').toString().toLowerCase().trim());
+    console.log('Farmatic headers:', cols);
+
+    // Column detection by name, with fallbacks by position
+    // Expected order: Fecha Venta(0), Libre Contado(1), Libre Crédito(2), Libre Total(3),
+    //   Receta Contado(4), Receta Crédito(5), Receta Total(6), Total Venta(7),
+    //   - Dtos(8), = Venta Neta(9), %Margen(10), - PdteReceta(11), = Venta Fcia(12)
+    const find = (...terms) => {
+      const i = cols.findIndex(c => terms.every(t => c.includes(t)));
+      return i >= 0 ? i : -1;
+    };
+
+    const fi = (terms, fallback) => { const i = find(...terms); return i >= 0 ? i : fallback; };
+    const idxFecha    = fi(['fecha'], 0);
+    const idxVentaNeta= fi(['venta', 'neta'], 9);
+    const idxSoe      = fi(['pdte'], fi(['pdterec'], 11));
+    const idxTicket   = fi(['fcia'], fi(['venta','total'], 12));
+
+    console.log('Col indices → fecha:', idxFecha, 'ticket:', idxTicket, 'soe:', idxSoe, 'ventaNeta:', idxVentaNeta);
+    if (rows[hdr+1]) console.log('Primera fila de datos RAW:', rows[hdr+1]);
+
+    for (let i = hdr + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      const raw = r[idxFecha];
+      if (!raw) continue;
+      const ds = toDateStr(raw);
+      if (!ds || ds < '2000-01-01') continue;
+
+      const ticket    = parseFloat(r[idxTicket])   || 0;
+      const soe       = parseFloat(r[idxSoe])      || 0;
+      const ventaNeta = parseFloat(r[idxVentaNeta])|| 0;
+
+      // Guardar todos los valores de la fila para exportar fielmente
+      // Índices fijos del Farmatic: 0=fecha,1=LibreC,2=LibreCr,3=LibreT,4=RecetaC,5=RecetaCr,
+      //   6=RecetaT,7=TotalVta,8=Dtos,9=VentaNeta,10=Margen,11=PdteReceta,12=VentaFcia
+      const cols = [];
+      for (let k=0; k<13; k++) cols.push(r[k] !== undefined && r[k] !== null ? r[k] : 0);
+      state.farmatic[ds] = {
+        ticket: parseFloat(cols[12]) || 0,  // = Venta Fcia
+        soe:    parseFloat(cols[11]) || 0,  // - PdteReceta
+        ventaNeta: parseFloat(cols[9]) || 0,
+        cols: cols.map((v,k) => k===0 ? ds : (typeof v==='number' ? v : parseFloat(v)||0))
+      };
+    }
+
+    const n = Object.keys(state.farmatic).length;
+    if (n === 0) {
+      toast('⚠️ Se leyó el fichero pero no se encontraron días. Revisa la consola (F12).');
+      return;
+    }
+
+    // Auto-set month from first date found
+    const firstDate = Object.keys(state.farmatic).sort()[0];
+    if (firstDate) {
+      const autoMonth = firstDate.slice(0, 7);
+      state.month = autoMonth;
+      document.getElementById('monthPicker').value = autoMonth;
+    }
+
+    document.getElementById('stFarmatic').textContent = `✓ ${n} días cargados`;
+    document.getElementById('zFarmatic').classList.add('loaded');
+    setStep(1);
+    saveState();
+    rebuildDays();
+    toast(`✅ Farmatic: ${n} días cargados`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+
+// ─── Load Forms (Google Forms export) ─────────────────────────────────────
+function loadForms(evt) {
+  const file = evt.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+    // Find header row — look for 'nombre' or 'efectivo'
+    let hdr = -1;
+    for (let i=0;i<rows.length;i++) {
+      const joined = (rows[i]||[]).map(c=>c?c.toString().toLowerCase():'').join('|');
+      if (joined.includes('nombre') && joined.includes('efectivo')) { hdr=i; break; }
+    }
+    if (hdr<0) { toast('❌ No se reconoce el formato del Excel de Forms'); return; }
+
+    const cols = rows[hdr].map(c=>(c||'').toString().toLowerCase().trim());
+    const iDia      = cols.findIndex(c=>c.includes('dia') || c.includes('día'));
+    const iNombre   = cols.findIndex(c=>c.includes('nombre'));
+    const iEfectivo = cols.findIndex(c=>c.includes('efectivo'));
+    const iGlovo    = cols.findIndex(c=>c.includes('glovo'));
+    const iComent   = cols.findIndex(c=>c.includes('comentario'));
+
+    // Group by date -> employee
+    const grouped = {}; // ds -> {name -> {efectivo, glovo, comentarios}}
+    let count = 0;
+
+    for (let i=hdr+1; i<rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+      const rawDia = r[iDia];
+      if (!rawDia) continue;
+      const ds = toDateStr(rawDia);
+      if (!ds || ds < '2000-01-01') continue;
+      const nombre   = (r[iNombre]||'').toString().trim();
+      const efectivo = parseFloat(r[iEfectivo])||0;
+      const glovo    = parseFloat(r[iGlovo])||0;
+      const coment   = iComent>=0 ? (r[iComent]||'').toString().trim() : '';
+      if (!nombre) continue;
+
+      if (!grouped[ds]) grouped[ds] = {};
+      // Sum if multiple entries per employee per day
+      if (!grouped[ds][nombre]) grouped[ds][nombre] = {efectivo:0, glovo:0, comentarios:[]};
+      grouped[ds][nombre].efectivo += efectivo;
+      grouped[ds][nombre].glovo    += glovo;
+      if (coment) grouped[ds][nombre].comentarios.push(coment);
+      count++;
+    }
+
+    // Merge into state.days — only overwrite employees from Forms, keep rest
+    // Keep manual edits intact: if employee already has data, ask
+    let merged = 0;
+    Object.entries(grouped).forEach(([ds, empData]) => {
+      if (!state.days[ds]) {
+        // Day not yet initialized — init with defaults
+        state.days[ds] = {
+          employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})),
+          glovo:0, promo:0, gastos:0, luciaTickets:[]
+        };
+      }
+      Object.entries(empData).forEach(([nombre, vals]) => {
+        const emp = state.days[ds].employees.find(e =>
+          e.name.toLowerCase() === nombre.toLowerCase() ||
+          nombre.toLowerCase().includes(e.name.toLowerCase()) ||
+          e.name.toLowerCase().includes(nombre.toLowerCase())
+        );
+        if (emp) {
+          emp.efectivo = Math.round((emp.efectivo + vals.efectivo)*100)/100;
+          // Glovo va al campo del día si la empleada no es Lucía
+          if (vals.glovo > 0) {
+            // Glovo siempre suma al campo del día, independientemente de quién lo haga
+            state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
+          }
+        } else {
+          // Employee not in default list — add them
+          state.days[ds].employees.push({name:nombre, efectivo:vals.efectivo, glovo:0, ministerio:0});
+        }
+        merged++;
+      });
+    });
+
+    document.getElementById('stForms').textContent = `✓ ${count} entradas · ${Object.keys(grouped).length} días`;
+    document.getElementById('zForms').classList.add('loaded');
+    saveState();
+    rebuildDays();
+    // If a day is selected, refresh its detail
+    if (state.selectedDay && grouped[state.selectedDay]) renderDayDetail(state.selectedDay);
+    toast(`✅ Forms: ${count} entradas cargadas en ${Object.keys(grouped).length} días`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─── Load Caixa ────────────────────────────────────────────────────────────
+function loadCaixa(evt) {
+  const file = evt.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    state.caixa = {};      // visas TPV por fecha de venta (d-1)
+    state.cajero = {};     // ingresos en cajero por fecha del banco
+    state.caixaRawRows = []; // filas originales para exportar
+
+    // Find header row to detect column positions
+    let hdrC = -1;
+    for (let i=0;i<rows.length;i++) {
+      if (rows[i] && rows[i].some(c => c && c.toString().toLowerCase().includes('fecha'))) { hdrC=i; break; }
+    }
+    // Store header rows for export
+    for (let i=0; i<=Math.max(hdrC,2); i++) state.caixaRawRows.push(rows[i]||[]);
+
+    for (let i=hdrC+1; i<rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+
+      // Find fecha, movimiento text, and importe in this row
+      let fecha=null, movimiento='', importe=null;
+      for (let j=0;j<r.length;j++) {
+        const v = r[j];
+        if (!v) continue;
+        const ds = toDateStr(v);
+        if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
+        if (typeof v === 'string') movimiento += ' ' + v.toLowerCase();
+        if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
+      }
+
+      if (!fecha || importe === null) continue;
+      state.caixaRawRows.push(r); // save for export
+
+      const movLower = movimiento.trim();
+      const esON = movLower.includes('on ') || /\bon\b/.test(movLower);
+      const esCajero = movLower.includes('ingreso') && movLower.includes('cajero');
+
+      if (esON && importe > 0) {
+        // Visas TPV: asignar al día anterior (día real de venta)
+        const d = new Date(fecha + 'T12:00:00');
+        d.setDate(d.getDate() - 1);
+        const realDs = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        state.caixa[realDs] = (state.caixa[realDs]||0) + importe;
+      } else if (esCajero && importe > 0) {
+        // Ingreso en cajero: columna Caixa de hoja Cajas, con fecha original del banco
+        state.cajero[fecha] = (state.cajero[fecha]||0) + importe;
+      }
+      // Resto de movimientos: ignorar
+    }
+    const n = Object.keys(state.caixa).length;
+    document.getElementById('stCaixa').textContent = `✓ ${n} movimientos`;
+    document.getElementById('zCaixa').classList.add('loaded');
+    setStep(2);
+    saveState();
+    rebuildDays();
+    toast(`✅ Caixa: ${n} días de cobros cargados`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─── Rebuild day list ──────────────────────────────────────────────────────
+function rebuildDays() {
+  if (Object.keys(state.farmatic).length === 0) return;
+
+  // Auto-detect month from first date if not set
+  const allDates = Object.keys(state.farmatic).sort();
+  if (!state.month && allDates.length > 0) {
+    state.month = allDates[0].slice(0, 7);
+    document.getElementById('monthPicker').value = state.month;
+  }
+
+  // Filter to selected month only
+  state.daysInMonth = allDates.filter(ds => ds.startsWith(state.month));
+
+  // Detect if there are other months in the file and warn
+  const otherMonths = [...new Set(allDates.map(ds=>ds.slice(0,7)).filter(m=>m!==state.month))];
+  const chipEl = document.getElementById('chipDays');
+  chipEl.textContent = `${state.daysInMonth.length} días`;
+  if (otherMonths.length > 0) {
+    chipEl.textContent += ` · también: ${otherMonths.join(', ')}`;
+    chipEl.title = `El fichero contiene datos de otros meses. Usa el selector para cambiar.`;
+    chipEl.style.cursor = 'help';
+  } else {
+    chipEl.title = '';
+    chipEl.style.cursor = '';
+  }
+  document.getElementById('emptyEfectivo').style.display = 'none';
+  document.getElementById('dayGridWrap').style.display = 'block';
+
+  // Init day state for any new days
+  state.daysInMonth.forEach(ds => {
+    if (!state.days[ds]) {
+      state.days[ds] = {
+        employees: state.defaultEmployees.map(n => ({name:n, efectivo:0, glovo:0, ministerio:0})),
+        glovo: 0, promo: 0, gastos: 0
+      };
+    }
+  });
+
+  renderDayGrid();
+  recalcAll();
+}
+
+function renderDayGrid() {
+  const grid = document.getElementById('dayGrid');
+  grid.innerHTML = '';
+  if (state.daysInMonth.length === 0) return;
+
+  // Lun=1 Mar=2 Mié=3 Jue=4 Vie=5 Sáb=6 Dom=0 → col: Dom=7, rest=getDay()
+  const colOf = ds => { const d = new Date(ds).getDay(); return d === 0 ? 7 : d; };
+
+  // Find first day of month to know starting column
+  const firstDs = state.daysInMonth[0];
+  const firstCol = colOf(firstDs);
+
+  // Add empty placeholders for days before first
+  for (let i = 1; i < firstCol; i++) {
+    const empty = document.createElement('div');
+    empty.className = 'day-grid-empty';
+    grid.appendChild(empty);
+  }
+
+  state.daysInMonth.forEach(ds => {
+    const total = getDayEfectivo(ds);
+    const filled = total > 0;
+    const card = document.createElement('div');
+    const dayNum = parseInt(ds.split('-')[2]);
+    const weekday = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(ds).getDay()];
+    const status = getDayStatus(ds);
+    const hasNotas = state.days[ds]?.notas?.trim();
+    const alertClass = filled ? (status !== 'green' ? `alert-${status}` : 'alert-green') : '';
+    card.className = `day-card${state.selectedDay===ds?' selected':''}${filled?' filled':''} ${alertClass}`.trim();
+    card.onclick = () => selectDay(ds);
+    const dotMap = {red:'🔴',yellow:'🟡',blue:'🔵',green:''};
+    card.innerHTML = `
+      <div class="dc-date">${ds.slice(8)}${hasNotas?' 📝':''}</div>
+      <div class="dc-label">Día ${dayNum}</div>
+      <div class="dc-bar"><div class="dc-bar-fill" style="width:${filled?'100':'0'}%"></div></div>
+      <div class="dc-total">${filled ? fmt(total)+' €' : '—'} ${filled&&status!=='green'?dotMap[status]:''}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ─── Day selection ─────────────────────────────────────────────────────────
+function selectDay(ds) {
+  state.selectedDay = ds;
+  renderDayGrid();
+  renderDayDetail(ds);
+  document.getElementById('dayDetail').style.display = 'block';
+  document.getElementById('dayDetail').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function renderDayDetail(ds) {
+  const f = state.farmatic[ds] || {};
+  const c = state.caixa[ds] || 0;
+  const d = state.days[ds] || {employees:[], glovo:0, promo:0, gastos:0};
+  if (!state.days[ds]) state.days[ds] = {employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})), glovo:0, promo:0, gastos:0};
+
+  const dayNum = parseInt(ds.split('-')[2]);
+  const weekday = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][new Date(ds).getDay()];
+  document.getElementById('detailTitle').textContent = `${weekday} ${dayNum} — ${ds.slice(5)}`;
+
+  document.getElementById('dVisas').value = c || '';
+  document.getElementById('dTicket').value = f.ticket || '';
+  document.getElementById('dSoe').value = f.soe || '';
+  document.getElementById('dGlovo').value = state.days[ds].glovo || 0;
+  document.getElementById('dPromo').value = state.days[ds].promo || 0;
+  document.getElementById('dGastos').value = state.days[ds].gastos || 0;
+  document.getElementById('dNotas').value = state.days[ds].notas || '';
+
+  renderEmpGrid(ds);
+  renderLuciaSection(ds);
+  updateDaySummary(ds);
+}
+
+function renderEmpGrid(ds) {
+  const emps = state.days[ds].employees;
+  const grid = document.getElementById('empGrid');
+  grid.innerHTML = '';
+  emps.forEach((emp, idx) => {
+    const isLucia = emp.name.toLowerCase().includes('luc') || emp.glovo > 0;
+    const row = document.createElement('div');
+    row.className = 'emp-row';
+    row.innerHTML = `
+      <span class="emp-name">${emp.name}</span>
+      <input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
+        oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">
+      <span class="emp-type">€</span>
+      <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.8rem" 
+        onclick="removeEmp('${ds}',${idx})">✕</button>
+    `;
+    grid.appendChild(row);
+  });
+}
+
+function empChanged(idx, field, val) {
+  const ds = state.selectedDay;
+  if (!state.days[ds]) return;
+  state.days[ds].employees[idx][field] = parseFloat(val)||0;
+  dayChanged();
+}
+
+function removeEmp(ds, idx) {
+  state.days[ds].employees.splice(idx, 1);
+  saveState();
+  renderDayDetail(ds);
+}
+
+function addEmployee() {
+  const nm = document.getElementById('newEmpName').value.trim();
+  if (!nm || !state.selectedDay) return;
+  state.days[state.selectedDay].employees.push({name:nm, efectivo:0, glovo:0, ministerio:0});
+  document.getElementById('newEmpName').value = '';
+  saveState();
+  renderDayDetail(state.selectedDay);
+}
+
+function dayChanged() {
+  const ds = state.selectedDay;
+  if (!state.days[ds]) return;
+  state.days[ds].glovo = parseFloat(document.getElementById('dGlovo').value)||0;
+  state.days[ds].promo = parseFloat(document.getElementById('dPromo').value)||0;
+  state.days[ds].gastos = parseFloat(document.getElementById('dGastos').value)||0;
+  updateDaySummary(ds);
+  recalcAll();
+  renderDayGrid();
+  saveState();
+}
+
+
+// ─── Libro ────────────────────────────────────────────────────────────────
+// ─── Libro — cajitas fijas + entradas libres ───────────────────────────────
+const LIBRO_FIXED = [
+  {key:'Goya',       label:'Goya',             alwaysNeg:false},
+  {key:'Tellez',     label:'Téllez',           alwaysNeg:false},
+  {key:'Oviedo',     label:'Oviedo',           alwaysNeg:false},
+  {key:'MonicaCris', label:'Mónica & Cris',    alwaysNeg:true},
+  {key:'Lucia',      label:'Lucía',            alwaysNeg:true},
+  {key:'ExtraLucia', label:'Extra Lucía ≥100k',alwaysNeg:true},
+];
+const LIBRO_IDS = {Goya:'libroGoya',Tellez:'libroTellez',Oviedo:'libroOviedo',
+  MonicaCris:'libroMonicaCris',Lucia:'libroLucia',ExtraLucia:'libroExtraLucia'};
+
+function setSign(key, sign) {
+  const lb = getLibroState();
+  if (lb[key]) lb[key].sign = sign;
+  const posBtn = document.getElementById('sign'+key+'_pos');
+  const negBtn = document.getElementById('sign'+key+'_neg');
+  if (posBtn) posBtn.className = 'sign-btn' + (sign==='pos'?' active pos':'');
+  if (negBtn) negBtn.className = 'sign-btn' + (sign==='neg'?' active neg':'');
+  updateLibroTotals();
+  saveState();
+}
+
+function getLibroState() {
+  if (!state.libro || Array.isArray(state.libro)) {
+    state.libro = {};
+    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+    state.libro.custom = [];
+  }
+  LIBRO_FIXED.forEach(c => {
+    if (!state.libro[c.key]) state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'};
+  });
+  if (!Array.isArray(state.libro.custom)) state.libro.custom = [];
+  return state.libro;
+}
+
+function updateLibroTotals() {
+  const lb = getLibroState();
+  let net = 0;
+  LIBRO_FIXED.forEach(c => {
+    const item = lb[c.key];
+    const signed = item.sign==='neg' ? -(item.amount||0) : (item.amount||0);
+    net = Math.round((net + signed)*100)/100;
+  });
+  lb.custom.forEach(e => {
+    const signed = e.sign==='neg' ? -(e.amount||0) : (e.amount||0);
+    net = Math.round((net + signed)*100)/100;
+  });
+  // Update custom list
+  const listEl = document.getElementById('customList');
+  if (listEl) {
+    listEl.innerHTML = lb.custom.map((e,i) => {
+      const signed = e.sign==='neg' ? -e.amount : e.amount;
+      const cls = signed<0 ? 'color:var(--err)' : 'color:var(--teal)';
+      return '<div style="display:flex;align-items:center;gap:8px;font-size:.82rem;padding:5px 0">'
+        +'<span style="flex:1">'+e.label+'</span>'
+        +'<span style="font-family:DM Mono,monospace;'+cls+'">'+(signed>=0?'+':'')+fmt(signed)+' €</span>'
+        +'<button onclick="removeCustomEntry('+i+')" style="background:none;border:none;cursor:pointer;color:var(--muted2)">✕</button>'
+        +'</div>';
+    }).join('');
+  }
+  // Update resumen rows
+  const rows = document.getElementById('libroRows');
+  if (rows) {
+    let html = '';
+    LIBRO_FIXED.forEach(c => {
+      const item = lb[c.key];
+      if (!item.amount) return;
+      const signed = item.sign==='neg' ? -(item.amount) : item.amount;
+      const cls = signed<0?'neg':'pos';
+      html += '<div class="libro-resumen-item"><span class="li-concept">'+c.label+'</span>'
+        +'<span class="li-val '+cls+'">'+(signed>=0?'+':'')+fmt(signed)+' €</span></div>';
+    });
+    lb.custom.forEach(e => {
+      if (!e.amount) return;
+      const signed = e.sign==='neg' ? -e.amount : e.amount;
+      const cls = signed<0?'neg':'pos';
+      html += '<div class="libro-resumen-item"><span class="li-concept">'+e.label+'</span>'
+        +'<span class="li-val '+cls+'">'+(signed>=0?'+':'')+fmt(signed)+' €</span></div>';
+    });
+    rows.innerHTML = html || '<div class="libro-resumen-item"><span class="li-concept" style="font-style:italic">Sin importes</span></div>';
+  }
+  const netFmt = (net>=0?'+':'')+fmt(net)+' €';
+  const totalEl = document.getElementById('libroTotalVal');
+  const chipEl  = document.getElementById('chipLibroTotal');
+  if (totalEl) { totalEl.textContent = netFmt; totalEl.style.color = net>=0?'#fff':'#ffb3b3'; }
+  if (chipEl)  { chipEl.textContent = netFmt; }
+  renderCajas();
+}
+
+function getLibroTotals() {
+  const lb = getLibroState();
+  let net = 0;
+  LIBRO_FIXED.forEach(c => {
+    const item = lb[c.key];
+    if (!item) return;
+    const signed = item.sign==='neg' ? -(item.amount||0) : (item.amount||0);
+    net = Math.round((net + signed)*100)/100;
+  });
+  (lb.custom||[]).forEach(e => {
+    const signed = e.sign==='neg' ? -(e.amount||0) : (e.amount||0);
+    net = Math.round((net + signed)*100)/100;
+  });
+  return {net, gastos: net<0?Math.abs(net):0, ingresos: net>0?net:0, med:0, nomina:0};
+}
+
+function libroChanged() {
+  const lb = getLibroState();
+  LIBRO_FIXED.forEach(c => {
+    const el = document.getElementById(LIBRO_IDS[c.key]);
+    if (el) lb[c.key].amount = parseFloat(el.value)||0;
+  });
+  updateLibroTotals();
+  saveState();
+}
+
+function renderLibroResumen() {
+  updateLibroTotals();
+}
+
+function restoreLibro() {
+  const lb = getLibroState();
+  LIBRO_FIXED.forEach(c => {
+    const el = document.getElementById(LIBRO_IDS[c.key]);
+    if (el) el.value = lb[c.key].amount || '';
+    if (!c.alwaysNeg) setSign(c.key, lb[c.key].sign||'pos');
+  });
+  updateLibroTotals();
+}
+
+function addCustomEntry() {
+  const label  = document.getElementById('customLabel').value.trim();
+  const amount = parseFloat(document.getElementById('customAmount').value)||0;
+  const type   = document.getElementById('customType').value;
+  const sign   = document.getElementById('customSign').value;
+  if (!label || !amount) return;
+  const lb = getLibroState();
+  lb.custom.push({label, amount, type, sign});
+  document.getElementById('customLabel').value  = '';
+  document.getElementById('customAmount').value = '';
+  renderCustomEntries();
+  renderLibroResumen();
+  saveState();
+}
+
+function removeCustomEntry(idx) {
+  state.libro.custom.splice(idx,1);
+  renderCustomEntries();
+  renderLibroResumen();
+  saveState();
+}
+
+function renderCustomEntries() {
+  const list = document.getElementById('customList');
+  if (!list) return;
+  const entries = state.libro.custom||[];
+  if (!entries.length) { list.innerHTML=''; return; }
+  list.innerHTML = entries.map((e,i) => {
+    const isNeg = e.sign==='neg';
+    return `<div class="libro-ticket">
+      <span class="t-client">${e.label} <span style="font-size:.68rem;opacity:.6">${e.type==='med'?'med':e.type==='nomina'?'nómina':'gasto'}</span></span>
+      <span class="t-amount" style="color:${isNeg?'var(--err)':'var(--teal)'}">${isNeg?'−':'+'} ${fmt(e.amount)} €</span>
+      <button class="t-del" onclick="removeCustomEntry(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+
+// ─── Modo oscuro ──────────────────────────────────────────────────────────
+function toggleDark() {
+  const isDark = document.body.classList.toggle('dark');
+  document.getElementById('darkToggle').textContent = isDark ? '☀️' : '🌙';
+  localStorage.setItem('cuadre_dark', isDark ? '1' : '0');
+}
+
+function initDark() {
+  const pref = localStorage.getItem('cuadre_dark');
+  // Also check OS preference if no saved pref
+  const osDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  if (pref === '1' || (pref === null && osDark)) {
+    document.body.classList.add('dark');
+    document.getElementById('darkToggle').textContent = '☀️';
+  }
+}
+
+
+// ─── Estadísticas ─────────────────────────────────────────────────────────
+const LUCIA_UMBRAL  = 100000;
+const LUCIA_PCT     = 0.10;
+
+function renderStats() {
+  const grid = document.getElementById('statsGrid');
+  if (!grid) return;
+  try {
+    const days = state.daysInMonth;
+    if (!days || days.length === 0) {
+      grid.innerHTML = '<div class="empty-state"><div class="emoji">📈</div><p>Carga los datos de Farmatic<br>para ver las estadísticas.</p></div>';
+      return;
+    }
+
+  // ── Cálculos base ─────────────────────────────────────────────────────
+  // Solo días con efectivo introducido para no desvirtuar KPIs
+  const daysWithData = days.filter(ds => state.farmatic[ds] && getDayEfectivo(ds) > 0);
+  const totalDaysMonth = new Date(parseInt(state.month.split('-')[0]), parseInt(state.month.split('-')[1]), 0).getDate();
+
+  // Ventas — solo días con efectivo
+  const ventaNeta  = daysWithData.reduce((s,ds) => s + (state.farmatic[ds]?.ventaNeta||0), 0);
+  const ventaFcia  = daysWithData.reduce((s,ds) => s + (state.farmatic[ds]?.ticket||0), 0);
+  const totalSOE   = daysWithData.reduce((s,ds) => s + (state.farmatic[ds]?.soe||0), 0);
+  const mediaVenta = daysWithData.length > 0 ? Math.round(ventaNeta / daysWithData.length * 100)/100 : 0;
+
+  // Previsión cierre — media de venta neta × días naturales del mes
+  const [my, mm] = state.month.split('-').map(Number);
+  const totalDiasMes = new Date(my, mm, 0).getDate();
+  const diasRestantes = totalDiasMes - daysWithData.length;
+  const totalDiasConDatos = daysWithData.length;
+  const previsionCierre = totalDiasConDatos > 0
+    ? Math.round((ventaNeta / totalDiasConDatos) * totalDiasMes * 100) / 100
+    : 0;
+
+  // Variable Lucía — sobre venta neta de días con efectivo
+  const excedente    = Math.max(0, ventaNeta - LUCIA_UMBRAL);
+  const variableLucia = Math.round(excedente * LUCIA_PCT * 100) / 100;
+  const pctUmbral    = Math.min(100, (ventaNeta / LUCIA_UMBRAL) * 100);
+  const superaUmbral = ventaNeta >= LUCIA_UMBRAL;
+
+  // Efectivo y diferencias — solo días con efectivo
+  const totalEfectivo = daysWithData.reduce((s,ds) => s + getDayEfectivo(ds), 0);
+  const totalVisas    = daysWithData.reduce((s,ds) => s + (state.caixa[ds]||0), 0);
+  const totalGlovo    = daysWithData.reduce((s,ds) => s + (state.days[ds]?.glovo||0), 0);
+
+  // Diferencias — solo días con efectivo
+  const diffs = daysWithData.map(ds => {
+    const f = state.farmatic[ds]||{};
+    const c = state.caixa[ds]||0;
+    const d = state.days[ds]||{};
+    const ef = getDayEfectivo(ds);
+    const dineroReal = ef + c + (d.glovo||0) + (d.promo||0) + (d.gastos||0);
+    return { ds, diff: dineroReal - (f.ticket||0), venta: f.ticket||0, ef };
+  });
+  const totalDiffAbs = Math.round(diffs.reduce((s,d) => s + d.diff, 0)*100)/100; // acumulado con signo
+  const diasOk       = diffs.filter(d => Math.abs(d.diff) < 10).length;
+  const diasAlerta   = diffs.filter(d => Math.abs(d.diff) >= 10).length;
+
+  // Top 3 días por venta
+  const topVentas = [...diffs].sort((a,b) => b.venta-a.venta).slice(0,5);
+  const minVenta  = [...diffs].filter(d=>d.venta>0).sort((a,b) => a.venta-b.venta).slice(0,3);
+
+  // Tickets Lucía + top clientes
+  let totalTicketsLucia = 0;
+  let numTicketsLucia = 0;
+  const clientTotals = {};
+  days.forEach(ds => {
+    const tickets = state.days[ds]?.luciaTickets || [];
+    tickets.forEach(t => {
+      totalTicketsLucia = Math.round((totalTicketsLucia + (t.amount||0))*100)/100;
+      numTicketsLucia++;
+      if (t.client) clientTotals[t.client] = Math.round(((clientTotals[t.client]||0) + (t.amount||0))*100)/100;
+    });
+  });
+  const top3Clients = Object.entries(clientTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
+  // ── Arqueo diff ───────────────────────────────────────────────────────
+  let arqueoDiffStats = null;
+  if (state.arqueo && (state.arqueo.monedas||state.arqueo.cambio||state.arqueo.billetes)) {
+    const totalFisico = Math.round(((state.arqueo.monedas||0)+(state.arqueo.cambio||0)+(state.arqueo.billetes||0))*100)/100;
+    const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+    let acumEsp = saldo0;
+    state.daysInMonth.forEach(ds => {
+      acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
+    });
+    const lt2 = getLibroTotals();
+    acumEsp = Math.round((acumEsp + lt2.net)*100)/100;
+    const netoEsp    = Math.round((acumEsp - totalTicketsLucia)*100)/100;
+    arqueoDiffStats  = Math.round((totalFisico - netoEsp)*100)/100;
+  }
+
+  // ── Chip resumen ──────────────────────────────────────────────────────
+  document.getElementById('statsChip').textContent =
+    `${daysWithData.length} días · ${diasOk} ok · ${diasAlerta} alertas`;
+
+  // ── Render KPIs ───────────────────────────────────────────────────────
+  const luciaBar = superaUmbral
+    ? '<div class="lucia-bar-fill over" style="width:'+pctUmbral.toFixed(1)+'%"></div>'
+    : '<div class="lucia-bar-fill" style="width:'+pctUmbral.toFixed(1)+'%"></div>';
+
+  const luciaMsg = superaUmbral
+    ? 'Excedente: <span>'+fmt(excedente)+' €</span> sobre 100.000 €'
+    : 'Faltan <span>'+fmt(LUCIA_UMBRAL - ventaNeta)+' €</span> para superar el umbral';
+
+  const topVentasRows = topVentas.map(d => {
+    const diffCls = Math.abs(d.diff)<1 ? 'color:var(--teal)' : Math.abs(d.diff)<10 ? 'color:var(--warn)' : 'color:var(--err)';
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(d.ds).getDay()];
+    const sign = d.diff>=0?'+':'';
+    return '<tr><td>'+wd+' '+d.ds.slice(5)+'</td><td>'+fmt(d.venta)+' €</td><td>'+fmt(d.ef)+' €</td><td style="'+diffCls+'">'+sign+fmt(d.diff)+' €</td></tr>';
+  }).join('');
+
+
+
+  grid.innerHTML =
+    '<div class="kpi-card kpi-accent">'
+      +'<div class="kpi-label">Venta Neta acumulada</div>'
+      +'<div class="kpi-value teal">'+fmt(ventaNeta)+' €</div>'
+      +'<div class="kpi-sub">Venta Fcia: <span>'+fmt(ventaFcia)+' €</span> · SOE: <span>'+fmt(totalSOE)+' €</span></div>'
+    +'</div>'
+    +'<div class="kpi-card">'
+      +'<div class="kpi-label">Media diaria (Venta Fcia)</div>'
+      +'<div class="kpi-value">'+fmt(mediaVenta)+' €</div>'
+      +'<div class="kpi-sub">'+daysWithData.length+' días con datos</div>'
+    +'</div>'
+    +'<div class="kpi-card kpi-gold">'
+      +'<div class="kpi-label">Previsión cierre de mes</div>'
+      +'<div class="kpi-value warn">'+fmt(previsionCierre)+' €</div>'
+      +'<div class="kpi-sub">Media diaria × '+totalDiasMes+' días del mes · '+diasRestantes+' pendientes</div>'
+    +'</div>'
+    +'<div class="kpi-card'+(superaUmbral?' kpi-accent':'')+'">'
+      +'<div class="kpi-label">Variable Lucía · umbral 100.000 € · 10% sobre excedente</div>'
+      +'<div class="kpi-value'+(superaUmbral?' teal':'')+'">'+( superaUmbral ? fmt(variableLucia)+' €' : 'Sin variable aún')+'</div>'
+      +'<div class="kpi-sub">'+luciaMsg+'</div>'
+      +'<div class="lucia-bar-wrap">'+luciaBar+'</div>'
+      +'<div class="kpi-sub" style="margin-top:5px">'+pctUmbral.toFixed(1)+'% del umbral alcanzado</div>'
+    +'</div>'
+    +'<div class="kpi-card'+(diasAlerta>0?' kpi-warn':' kpi-accent')+'">'
+      +'<div class="kpi-label">Cuadre</div>'
+      +'<div class="kpi-value'+(diasAlerta>0?' err':' teal')+'">'+diasOk+' / '+daysWithData.length+'</div>'
+      +'<div class="kpi-sub">'+diasAlerta+' días con diferencia >10 €</div>'
+    +'</div>'
+    +'<div class="kpi-card">'
+      +'<div class="kpi-label">Descuadre total acumulado</div>'
+      +'<div class="kpi-value'+(Math.abs(totalDiffAbs)>50?' err':Math.abs(totalDiffAbs)>10?' warn':'')+'">'+(totalDiffAbs>=0?'+':'')+fmt(totalDiffAbs)+' €</div>'
+      +'<div class="kpi-sub">Acumulado neto (+ favor farmacia, − falta efectivo)</div>'
+    +'</div>'
+    +'<div class="kpi-card">'
+      +'<div class="kpi-label">Efectivo recogido</div>'
+      +'<div class="kpi-value">'+fmt(totalEfectivo)+' €</div>'
+      +'<div class="kpi-sub">Media: <span>'+fmt(totalEfectivo/Math.max(daysWithData.length,1))+' €/día</span></div>'
+    +'</div>'
+    +'<div class="kpi-card">'
+      +'<div class="kpi-label">Cobros TPV (Visas)</div>'
+      +'<div class="kpi-value">'+fmt(totalVisas)+' €</div>'
+      +'<div class="kpi-sub">Media: <span>'+fmt(totalVisas/Math.max(daysWithData.length,1))+' €/día</span></div>'
+    +'</div>'
+    +'<div class="kpi-card">'
+      +'<div class="kpi-label">Glovo</div>'
+      +'<div class="kpi-value">'+fmt(totalGlovo)+' €</div>'
+      +'<div class="kpi-sub">Total del mes</div>'
+    +'</div>'
+    +'<div class="kpi-card kpi-wide2">'
+      +'<div class="kpi-label">Top 5 días por venta</div>'
+      +'<table class="stats-table"><tr><th>Fecha</th><th>Venta Fcia</th><th>Efectivo</th><th>Diferencia</th></tr>'
+      +topVentasRows
+      +'</table>'
+    +'</div>'
+    +'<div class="kpi-card kpi-accent">'
+      +'<div class="kpi-label">Tickets Lucía (total mes)</div>'
+      +'<div class="kpi-value teal">'+fmt(totalTicketsLucia)+' €</div>'
+      +'<div class="kpi-sub">'+numTicketsLucia+' tickets · media <span>'+fmt(numTicketsLucia>0?Math.round(totalTicketsLucia/numTicketsLucia*100)/100:0)+' €/ticket</span></div>'
+      +(top3Clients.length>0
+        ? '<div style="margin-top:12px;border-top:1px solid var(--teal-mid);padding-top:10px">'
+          +'<div style="font-size:.68rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Top clientes</div>'
+          +top3Clients.map(([name,total],i) => {
+            const pct = Math.round(total/totalTicketsLucia*100);
+            const medals = ['🥇','🥈','🥉'];
+            return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.78rem">'
+              +'<span>'+medals[i]+'</span>'
+              +'<span style="flex:1;color:var(--text)">'+name+'</span>'
+              +'<span style="font-family:DM Mono,monospace;color:var(--teal);font-weight:600">'+fmt(total)+' €</span>'
+              +'<span style="font-size:.68rem;color:var(--muted);min-width:30px;text-align:right">'+pct+'%</span>'
+              +'</div>';
+          }).join('')
+          +'</div>'
+        : '')
+    +'</div>'
+    // Arqueo KPI
+    +(arqueoDiffStats !== null
+      ? '<div class="kpi-card'+(arqueoDiffStats===0?' kpi-accent':' kpi-warn')+'">'
+        +'<div class="kpi-label">Arqueo real de caja</div>'
+        +'<div class="kpi-value'+(arqueoDiffStats===0?' teal':' err')+'">'+( arqueoDiffStats===0 ? '✓ Cuadra' : (arqueoDiffStats>0?'+':'')+fmt(arqueoDiffStats)+' €')+'</div>'
+        +'<div class="kpi-sub">'+(arqueoDiffStats===0?'El efectivo físico coincide con lo esperado':arqueoDiffStats>0?'Hay '+fmt(arqueoDiffStats)+' € de más en caja':'Faltan '+fmt(Math.abs(arqueoDiffStats))+' € en caja')+'</div>'
+        +'</div>'
+      : '<div class="kpi-card" style="opacity:.5">'
+        +'<div class="kpi-label">Arqueo real de caja</div>'
+        +'<div class="kpi-value" style="font-size:1rem;color:var(--muted)">Sin datos</div>'
+        +'<div class="kpi-sub">Introduce el recuento en la pestaña Arqueo</div>'
+        +'</div>');
+  } catch(err) {
+    console.error('Error en renderStats:', err);
+    grid.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Error: '+err.message+'</p></div>';
+  }
+}
+
+
+// ─── Google Drive ─────────────────────────────────────────────────────────
+const GDRIVE_CLIENT_ID  = '418702665350-tjqll4c0fgpt59lvigaprcncok33o0hv.apps.googleusercontent.com';
+const GDRIVE_FOLDER_ID  = '1sN3FoV1T6JnbiRlp3jXVZdmlCRVIdX_0';
+const GDRIVE_SCOPES     = 'https://www.googleapis.com/auth/drive.readonly';
+
+let gdriveToken = null;
+
+function driveConnect() {
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GDRIVE_CLIENT_ID,
+    scope: GDRIVE_SCOPES,
+    callback: (resp) => {
+      if (resp.error) {
+        document.getElementById('driveStatus').textContent = '❌ Error: ' + resp.error;
+        document.getElementById('driveStatus').className = 'drive-status err';
+        return;
+      }
+      gdriveToken = resp.access_token;
+      localStorage.setItem('gdrive_token', gdriveToken);
+      document.getElementById('driveStatus').textContent = '✅ Conectado a Google Drive';
+      document.getElementById('driveStatus').className = 'drive-status ok';
+      document.getElementById('driveBtnConnect').style.display = 'none';
+      document.getElementById('driveBtnRefresh').style.display = 'flex';
+      // Auto-load Farmatic after connecting
+      driveLoadFarmatic();
+    }
+  });
+  client.requestAccessToken();
+}
+
+async function driveLoadFarmatic() {
+  if (!gdriveToken) { driveConnect(); return; }
+  const btn = document.getElementById('driveBtnRefresh');
+  const status = document.getElementById('driveStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Buscando fichero...';
+  status.textContent = 'Buscando Farmatic en Drive...';
+  status.className = 'drive-status';
+  try {
+    // Search for xlsx files in the folder
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'+and+trashed=false&orderBy=modifiedTime+desc&fields=files(id,name,modifiedTime)`;
+    const searchResp = await fetch(searchUrl, {
+      headers: { Authorization: 'Bearer ' + gdriveToken }
+    });
+    if (!searchResp.ok) throw new Error('Error buscando ficheros: ' + searchResp.status);
+    const searchData = await searchResp.json();
+    const files = searchData.files || [];
+    if (files.length === 0) {
+      throw new Error('No se encontraron ficheros Excel en la carpeta');
+    }
+    // Take the most recently modified file
+    const file = files[0];
+    status.textContent = 'Descargando ' + file.name + '...';
+    btn.textContent = '⏳ Descargando...';
+    // Download file
+    const dlResp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+      { headers: { Authorization: 'Bearer ' + gdriveToken } }
+    );
+    if (!dlResp.ok) throw new Error('Error descargando fichero');
+    const arrayBuffer = await dlResp.arrayBuffer();
+    // Parse as Excel — reuse loadFarmatic logic
+    const wb = XLSX.read(arrayBuffer, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    // Find header
+    let hdr = -1;
+    for (let i=0;i<rows.length;i++) {
+      const joined = (rows[i]||[]).map(c=>c?c.toString().toLowerCase():'').join('|');
+      if (joined.includes('fecha')) { hdr=i; break; }
+    }
+    if (hdr<0) throw new Error('No se reconoce el formato del fichero Farmatic');
+    const cols = rows[hdr].map(c=>(c||'').toString().toLowerCase().replace(/\s+/g,' ').trim());
+    const fi = (terms, fallback) => { const i = cols.findIndex(c=>terms.every(t=>c.includes(t))); return i>=0?i:fallback; };
+    const idxFecha    = fi(['fecha'], 0);
+    const idxVentaNeta= fi(['venta','neta'], 9);
+    const idxSoe      = fi(['pdte'], fi(['pdterec'], 11));
+    const idxTicket   = fi(['fcia'], fi(['venta','total'], 12));
+    state.farmatic = {};
+    state.farmaticRawRows = {};
+    for (let i=hdr+1;i<rows.length;i++) {
+      const r = rows[i]; if (!r) continue;
+      const ds = toDateStr(r[idxFecha]);
+      if (!ds || ds < '2000-01-01') continue;
+      const cols2 = [];
+      for (let k=0;k<13;k++) cols2.push(r[k]!==undefined&&r[k]!==null?r[k]:0);
+      state.farmatic[ds] = {
+        ticket: parseFloat(cols2[idxTicket])||0,
+        soe:    parseFloat(cols2[idxSoe])||0,
+        ventaNeta: parseFloat(cols2[idxVentaNeta])||0,
+        cols: cols2.map((v,k)=>k===0?ds:(typeof v==='number'?v:parseFloat(v)||0))
+      };
+    }
+    const n = Object.keys(state.farmatic).length;
+    if (n===0) throw new Error('No se encontraron días en el fichero');
+    // Auto-set month
+    const firstDate = Object.keys(state.farmatic).sort()[0];
+    if (firstDate) {
+      state.month = firstDate.slice(0,7);
+      document.getElementById('monthPicker').value = state.month;
+    }
+    // Update UI
+    const modDate = new Date(file.modifiedTime).toLocaleDateString('es-ES');
+    status.textContent = `✅ ${file.name} · ${n} días · ${modDate}`;
+    status.className = 'drive-status ok';
+    btn.textContent = '🔄 Actualizar desde Drive';
+    btn.disabled = false;
+    document.getElementById('stFarmatic').textContent = `✓ ${n} días (Drive)`;
+    document.getElementById('zFarmatic').classList.add('loaded');
+    setStep(1);
+    saveState();
+    rebuildDays();
+    toast(`✅ Farmatic cargado desde Drive: ${n} días`);
+  } catch(err) {
+    console.error('Drive error:', err);
+    status.textContent = '❌ ' + err.message;
+    status.className = 'drive-status err';
+    btn.textContent = '🔄 Reintentar';
+    btn.disabled = false;
+    // If token expired, reconnect
+    if (err.message.includes('401') || err.message.includes('403')) {
+      gdriveToken = null;
+      localStorage.removeItem('gdrive_token');
+      document.getElementById('driveBtnConnect').style.display = 'flex';
+      document.getElementById('driveBtnRefresh').style.display = 'none';
+    }
+  }
+}
+
+function initDriveUI() {
+  // Check if we had a previous token (won't be valid but shows UI state)
+  const saved = localStorage.getItem('gdrive_token');
+  if (saved) {
+    gdriveToken = saved;
+    document.getElementById('driveStatus').textContent = 'Reconectar para actualizar';
+    document.getElementById('driveStatus').className = 'drive-status';
+    document.getElementById('driveBtnConnect').textContent = '🔗 Reconectar con Google';
+    document.getElementById('driveBtnRefresh').style.display = 'flex';
+  }
+}
+
+
+// ─── Backup efectivo empleadas ────────────────────────────────────────────
+function exportBackupEfectivo() {
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = {WBProps:{date1904:false}};
+  const TEAL = 'FF086C74';
+
+  const headers = ['Marca temporal','Dia','Nombre','Mostrador','Efectivo','Glovo','Comentarios','Puntuación'];
+  const rows = [headers];
+
+  const [y,m] = state.month ? state.month.split('-').map(Number) : [2026,1];
+
+  state.daysInMonth.forEach(ds => {
+    const d = state.days[ds];
+    if (!d) return;
+    const dayDate = new Date(ds+'T00:00:00');
+    const ts = new Date(ds+'T22:00:00');
+
+    d.employees.forEach((emp, i) => {
+      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      if (ef <= 0) return;
+      const glovo = d.glovo > 0 && i === 0 ? d.glovo : null; // glovo al primer empleado
+      const notas = d.notas || null;
+      rows.push([ts, dayDate, emp.name, 'Mostrador '+(i%2+1), ef, glovo, notas, 0]);
+    });
+  });
+
+  if (rows.length <= 1) { toast('⚠️ No hay datos de efectivo para exportar'); return; }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // Header style
+  for (let c=0; c<headers.length; c++) {
+    const cell = ws[XLSX.utils.encode_cell({r:0,c})];
+    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFFFF'},name:'Arial',sz:10},
+      fill:{patternType:'solid',fgColor:{rgb:TEAL}}, alignment:{horizontal:'center'}};
+  }
+  // Date formats
+  for (let r=1; r<rows.length; r++) {
+    const tsCell = ws[XLSX.utils.encode_cell({r,c:0})];
+    const dCell  = ws[XLSX.utils.encode_cell({r,c:1})];
+    if (tsCell) { tsCell.t='d'; tsCell.z='DD/MM/YYYY HH:MM:SS'; }
+    if (dCell)  { dCell.t='d';  dCell.z='DD/MM/YYYY'; }
+  }
+  ws['!cols'] = [{wch:20},{wch:12},{wch:12},{wch:14},{wch:10},{wch:10},{wch:20},{wch:10}];
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length-1,c:7}});
+
+  const [my,mm] = state.month ? state.month.split('-') : ['2026','01'];
+  const monthName = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+    'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(mm)];
+  XLSX.utils.book_append_sheet(wb, ws, 'Respuestas de formulario 1');
+  XLSX.writeFile(wb, `Efectivo_Empleadas_${monthName}_${my}_backup.xlsx`);
+  toast(`✅ Backup generado: ${rows.length-1} entradas`);
+}
+
+// ─── Importar tickets Lucía ───────────────────────────────────────────────
+function importLuciaTickets() {
+  document.getElementById('luciaTicketsFile').click();
+}
+
+function handleLuciaTicketsFile(evt) {
+  const file = evt.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+    // Find header row with Fecha/Cliente/Importe
+    let hdr = -1;
+    for (let i=0; i<rows.length; i++) {
+      const joined = (rows[i]||[]).map(c=>c?c.toString().toLowerCase():'').join('|');
+      if (joined.includes('fecha') && joined.includes('cliente')) { hdr=i; break; }
+    }
+    if (hdr<0) { toast('❌ No se reconoce el formato del fichero de tickets'); return; }
+
+    const cols = rows[hdr].map(c=>(c||'').toString().toLowerCase().trim());
+    const iFecha   = cols.findIndex(c=>c.includes('fecha'));
+    const iCliente = cols.findIndex(c=>c.includes('cliente'));
+    const iImporte = cols.findIndex(c=>c.includes('importe'));
+
+    let count = 0;
+    for (let i=hdr+1; i<rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+      const ds = toDateStr(r[iFecha]);
+      if (!ds || ds < '2000-01-01') continue;
+      const client = (r[iCliente]||'').toString().trim();
+      const amount = parseFloat(r[iImporte])||0;
+      if (!client || !amount || client==='Total') continue;
+
+      if (!state.days[ds]) {
+        state.days[ds] = {
+          employees: state.defaultEmployees.map(n=>({name:n,efectivo:0})),
+          glovo:0, promo:0, gastos:0, luciaTickets:[], notas:''
+        };
+      }
+      if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
+      state.days[ds].luciaTickets.push({client, amount});
+      count++;
+    }
+
+    // Reset file input
+    evt.target.value = '';
+    saveState();
+    if (state.selectedDay) renderDayDetail(state.selectedDay);
+    toast(`✅ ${count} tickets de Lucía cargados`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+
+// ─── Arqueo de caja ────────────────────────────────────────────────────────
+function arqueoChanged() {
+  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
+  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
+  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
+  const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
+
+  // Total tickets Lucía del mes
+  let totalLucia = 0;
+  state.daysInMonth.forEach(ds => {
+    (state.days[ds]?.luciaTickets||[]).forEach(t => {
+      totalLucia = Math.round((totalLucia + (t.amount||0))*100)/100;
+    });
+  });
+
+  // Efectivo esperado = acumulado Cajas + Libro
+  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  let acumEsperado = saldo0;
+  state.daysInMonth.forEach(ds => {
+    const ef     = getDayEfectivo(ds);
+    const gastos = state.days[ds]?.gastos||0;
+    const cajero = state.cajero?.[ds]||0;
+    acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
+  });
+  const lt = getLibroTotals();
+  acumEsperado = Math.round((acumEsperado + lt.net)*100)/100;
+
+  // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
+  const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
+
+  // Diferencia = físico total − esperado neto
+  const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
+
+  // Update UI
+  document.getElementById('arqueoTotal').textContent       = fmt(totalFisico)+' €';
+  document.getElementById('arqueoLucia').textContent       = '−'+fmt(totalLucia)+' €';
+  document.getElementById('arqueoNeto').textContent        = fmt(totalFisico)+' €';
+  document.getElementById('arqueoEsperado').textContent    = fmt(acumEsperado)+' €';
+  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(totalLucia)+' €';
+  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(esperadoNeto)+' €';
+
+  const diffEl  = document.getElementById('arqueoDiff');
+  const diffMsg = document.getElementById('arqueoDiffMsg');
+  const chip    = document.getElementById('arqueoChip');
+
+  if (diff === 0) {
+    diffEl.textContent  = '✓ Cuadra';
+    diffEl.className    = 'arqueo-diff-badge ok';
+    diffMsg.textContent = 'El efectivo en caja coincide exactamente con lo esperado.';
+    chip.textContent    = '✅ Cuadra';
+  } else {
+    const sign = diff > 0 ? '+' : '';
+    diffEl.textContent  = sign+fmt(diff)+' €';
+    diffEl.className    = 'arqueo-diff-badge err';
+    diffMsg.textContent = diff > 0
+      ? `Hay ${fmt(diff)} € de más en caja.`
+      : `Faltan ${fmt(Math.abs(diff))} € en caja.`;
+    chip.textContent = (diff>0?'+':'')+fmt(diff)+' €';
+  }
+
+  // Save arqueo state
+  state.arqueo = {monedas, cambio, billetes};
+  saveState();
+}
+
+function restoreArqueo() {
+  if (!state.arqueo) return;
+  document.getElementById('arqueoMonedas').value  = state.arqueo.monedas  || '';
+  document.getElementById('arqueoCambio').value   = state.arqueo.cambio   || '';
+  document.getElementById('arqueoBilletes').value = state.arqueo.billetes || '';
+  if (state.arqueo.monedas || state.arqueo.cambio || state.arqueo.billetes) arqueoChanged();
+  renderArqueoHistorico();
+}
+
+// ─── Histórico arqueo ─────────────────────────────────────────────────────
+function saveArqueoSnapshot() {
+  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
+  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
+  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
+  const totalFisico = Math.round((monedas+cambio+billetes)*100)/100;
+  if (totalFisico === 0) { toast('⚠️ Introduce el recuento antes de guardar'); return; }
+
+  // Recalculate diff
+  let totalLucia = 0;
+  state.daysInMonth.forEach(ds => {
+    (state.days[ds]?.luciaTickets||[]).forEach(t => {
+      totalLucia = Math.round((totalLucia+(t.amount||0))*100)/100;
+    });
+  });
+  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  let acumEsp = saldo0;
+  state.daysInMonth.forEach(ds => {
+    acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
+  });
+  acumEsp = Math.round((acumEsp + getLibroTotals().net)*100)/100;
+  const esperadoNeto = Math.round((acumEsp - totalLucia)*100)/100;
+  const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
+
+  if (!state.arqueoHistorico) state.arqueoHistorico = [];
+  const today = new Date().toISOString().slice(0,10);
+  state.arqueoHistorico = state.arqueoHistorico.filter(h => h.date !== today);
+  state.arqueoHistorico.unshift({date:today, totalFisico, diff});
+  state.arqueoHistorico = state.arqueoHistorico.slice(0,3);
+  saveState();
+  renderArqueoHistorico();
+  toast('✅ Arqueo guardado');
+}
+
+function renderArqueoHistorico() {
+  const el = document.getElementById('arqueoHistorico');
+  if (!el) return;
+  const hist = state.arqueoHistorico || [];
+  if (hist.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="font-size:.68rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">Últimos arqueos guardados</div>'
+    + hist.map(h => {
+      const d = new Date(h.date+'T00:00:00');
+      const dateStr = d.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});
+      const ok = h.diff === 0;
+      const diffStr = ok ? '✓ Cuadra' : (h.diff>0?'+':'')+fmt(h.diff)+' €';
+      const cls = ok ? 'color:var(--teal)' : 'color:var(--err)';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:.82rem">'
+        +'<span style="color:var(--muted)">'+dateStr+'</span>'
+        +'<span style="font-family:DM Mono,monospace;font-weight:600;'+cls+'">'+diffStr+'</span>'
+        +'<span style="font-family:DM Mono,monospace;color:var(--muted);font-size:.75rem">'+fmt(h.totalFisico)+' €</span>'
+        +'</div>';
+    }).join('');
+}
+
+// ─── Atajos de teclado ────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Tab entre inputs de empleadas
+  if (e.key === 'Tab' && document.activeElement.classList.contains('emp-input')) {
+    const inputs = [...document.querySelectorAll('#empGrid .emp-input')];
+    const idx = inputs.indexOf(document.activeElement);
+    if (idx >= 0) {
+      e.preventDefault();
+      const next = e.shiftKey ? inputs[idx-1] : inputs[idx+1];
+      if (next) { next.focus(); next.select(); }
+      else if (!e.shiftKey) document.getElementById('dGlovo')?.focus();
+    }
+  }
+  // Enter en importe Lucía → añadir ticket y volver al cliente
+  if (e.key === 'Enter' && document.activeElement.id === 'luciaAmount') {
+    e.preventDefault();
+    addLuciaTicket();
+    setTimeout(() => document.getElementById('luciaClient')?.focus(), 50);
+  }
+  // Enter en nuevo cliente Lucía → saltar al importe
+  if (e.key === 'Enter' && document.activeElement.id === 'luciaClientNew') {
+    e.preventDefault();
+    document.getElementById('luciaAmount')?.focus();
+  }
+  // Escape → cerrar modal
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('validModal');
+    if (modal?.classList.contains('show')) closeModal();
+  }
+});
+
+// ─── Lucía tickets ────────────────────────────────────────────────────────
+function getLuciaEmp(ds) {
+  if (!state.days[ds]) return null;
+  return state.days[ds].employees.find(e => e.name.toLowerCase().includes('luc'));
+}
+
+function getLuciaTotal(ds) {
+  const tickets = state.days[ds]?.luciaTickets || [];
+  return Math.round(tickets.reduce((s,t) => s+(t.amount||0), 0)*100)/100;
+}
+
+function renderLuciaSection(ds) {
+  const tickets = state.days[ds]?.luciaTickets || [];
+  const total = getLuciaTotal(ds);
+  document.getElementById('luciaTotal').textContent = fmt(total)+' €';
+  const list = document.getElementById('luciaTicketList');
+  if (tickets.length === 0) {
+    list.innerHTML = '<div class="lucia-empty">Sin tickets por hoy</div>';
+  } else {
+    list.innerHTML = tickets.map((t,i) => `
+      <div class="lucia-ticket">
+        <span class="t-client">${t.client}</span>
+        <span class="t-amount">${fmt(t.amount)} €</span>
+        <button class="t-del" onclick="removeLuciaTicket(${i})" title="Eliminar">✕</button>
+      </div>`).join('');
+  }
+  // Sync Lucía employee efectivo with ticket total
+  const lucia = getLuciaEmp(ds);
+  if (lucia) { lucia.efectivo = total; renderEmpGrid(ds); }
+}
+
+function addLuciaTicket() {
+  const ds = state.selectedDay; if (!ds) return;
+  const sel = document.getElementById('luciaClient');
+  const newInp = document.getElementById('luciaClientNew');
+  let client = sel.value === '__new__' ? newInp.value.trim() : sel.value;
+  const amount = parseFloat(document.getElementById('luciaAmount').value)||0;
+  if (!client || client === '') { alert('Selecciona o escribe el nombre del cliente'); return; }
+  if (amount <= 0) { alert('Introduce un importe válido'); return; }
+
+  // If new client, add to select options
+  if (sel.value === '__new__' && client) {
+    const opt = document.createElement('option');
+    opt.value = client; opt.textContent = client;
+    sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+    sel.value = client;
+    newInp.style.display = 'none';
+    newInp.value = '';
+  }
+
+  if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
+  state.days[ds].luciaTickets.push({client, amount});
+  document.getElementById('luciaAmount').value = '';
+  renderLuciaSection(ds);
+  dayChanged();
+  saveState();
+}
+
+function removeLuciaTicket(idx) {
+  const ds = state.selectedDay; if (!ds) return;
+  state.days[ds].luciaTickets.splice(idx, 1);
+  renderLuciaSection(ds);
+  dayChanged();
+  saveState();
+}
+
+// Show/hide new client input
+document.addEventListener('change', e => {
+  if (e.target.id === 'luciaClient') {
+    document.getElementById('luciaClientNew').style.display =
+      e.target.value === '__new__' ? 'block' : 'none';
+  }
+});
+
+function getDayEfectivo(ds) {
+  const d = state.days[ds];
+  if (!d) return 0;
+  // Lucía's efectivo comes from her ticket total, not manual input
+  return d.employees.reduce((s,e) => {
+    if (e.name.toLowerCase().includes('luc')) return s + getLuciaTotal(ds);
+    return s + (e.efectivo||0);
+  }, 0);
+}
+
+function updateDaySummary(ds) {
+  const f = state.farmatic[ds] || {};
+  const c = state.caixa[ds] || 0;
+  const d = state.days[ds] || {};
+  const dinero = getDayEfectivo(ds);
+  const glovo = d.glovo||0;
+  const promo = d.promo||0;
+  const gastos = d.gastos||0;
+  const soe = f.soe||0;
+  // Dinero Real = Efectivo + Visas + Glovo + Promociones
+  const dineroReal = dinero + c + glovo + promo + gastos;
+  // Total Real = Dinero Real + SOE
+  const totalReal = dineroReal + soe;
+  // Diferencia = Dinero Real - Ticket Farmatic
+  const diff = dineroReal - (f.ticket||0);
+
+  document.getElementById('sumDinero').textContent = fmt(dinero)+' €';
+  document.getElementById('sumVisas').textContent = fmt(c)+' €';
+  document.getElementById('sumGlovo').textContent = fmt(glovo)+' €';
+  document.getElementById('sumPromo').textContent = fmt(promo)+' €';
+  document.getElementById('sumGastos').textContent = fmt(gastos)+' €';
+  document.getElementById('sumTotal').textContent = fmt(dineroReal)+' € (Dinero Real)  |  '+fmt(totalReal)+' € (Total Real con SOE)';
+  document.getElementById('sumTicket').textContent = fmt(f.ticket||0)+' €';
+  const diffEl = document.getElementById('sumDiff');
+  diffEl.textContent = (diff>=0?'+':'')+fmt(diff)+' €';
+  diffEl.className = `diff-badge ${Math.abs(diff)<1?'ok':'warn'}`;
+}
+
+// ─── Recalc all (Resumen + Cajas) ─────────────────────────────────────────
+function recalcAll() {
+  if (state.daysInMonth.length === 0) return;
+  renderResumen();
+  renderCajas();
+  checkExportReady();
+}
+
+function renderResumen() {
+  const tb = document.getElementById('tResumen');
+  let html = `<thead><tr>
+    <th>Fecha</th><th>Ticket Farmatic</th><th>Visas</th><th>Efectivo Caja</th>
+    <th>Glovo</th><th>Promociones</th><th>SOE</th>
+    <th>Dinero Real</th><th>Total Real (c/SOE)</th><th>Diferencia</th><th>Notas</th>
+  </tr></thead><tbody>`;
+
+  // Solo días con efectivo introducido
+  const daysForResumen = [...state.daysInMonth].sort((a,b)=>b.localeCompare(a)).filter(ds => getDayEfectivo(ds) > 0);
+  daysForResumen.forEach(ds => {
+    const f = state.farmatic[ds]||{};
+    const c = state.caixa[ds]||0;
+    const d = state.days[ds]||{};
+    const caja  = getDayEfectivo(ds);
+    const glovo = d.glovo||0;
+    const promo = d.promo||0;
+    const gastos= d.gastos||0;
+    const soe   = f.soe||0;
+    const dineroReal = caja + c + glovo + promo + gastos;
+    const totalReal  = dineroReal + soe;
+    const diff = dineroReal - (f.ticket||0);
+    const diffCls = Math.abs(diff)<1?'td-ok':(Math.abs(diff)<10?'td-warn':'td-err');
+    const notas = state.days[ds]?.notas?.trim() || '';
+    html += `<tr>
+      <td>${ds.slice(5)}</td>
+      <td>${fmt(f.ticket||0)}</td>
+      <td>${fmt(c)}</td>
+      <td>${fmt(caja)}</td>
+      <td>${fmt(glovo)}</td>
+      <td>${fmt(promo)}</td>
+      <td>${fmt(soe)}</td>
+      <td>${fmt(dineroReal)}</td>
+      <td>${fmt(totalReal)}</td>
+      <td class="${diffCls}">${(diff>=0?'+':'')+fmt(diff)}</td>
+      <td style="text-align:left;font-style:italic;color:var(--muted);font-size:.75rem">${notas}</td>
+    </tr>`;
+  });
+  html += '</tbody>';
+  tb.innerHTML = html;
+  document.getElementById('emptyResumen').style.display = 'none';
+  document.getElementById('resumenTable').style.display = 'block';
+}
+
+function getLibroNet() {
+  if (!Array.isArray(state.libro)) return 0;
+  return Math.round(state.libro.reduce((s,e) => s + (e.sign==='neg' ? -(e.amount||0) : (e.amount||0)), 0)*100)/100;
+}
+
+function getLibroGasto() {
+  if (!Array.isArray(state.libro)) return 0;
+  return Math.round(state.libro.filter(e=>e.sign==='neg').reduce((s,e)=>s+(e.amount||0),0)*100)/100;
+}
+
+function renderCajas() {
+  const tb = document.getElementById('tCajas');
+  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  let html = `<thead><tr>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos</th><th>Efectivo total</th>
+  </tr></thead><tbody>`;
+  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(saldo0)}</td></tr>`;
+
+  let acum = saldo0;
+  state.daysInMonth.forEach(ds => {
+    const ef     = getDayEfectivo(ds);
+    const gastos = state.days[ds]?.gastos||0;
+    const cajero = state.cajero?.[ds]||0;
+    acum = Math.round((acum + ef - cajero - gastos)*100)/100;
+    const cajeroStr = cajero ? `<span style="color:var(--err)">−${fmt(cajero)}</span>` : '—';
+    const gastosStr = gastos ? `<span style="color:var(--warn)">−${fmt(gastos)}</span>` : '—';
+    html += `<tr>
+      <td>${ds.slice(5)}</td>
+      <td style="text-align:left;color:var(--muted)">${ds}</td>
+      <td>${fmt(ef)}</td>
+      <td>${cajeroStr}</td>
+      <td>${gastosStr}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(acum)}</td>
+    </tr>`;
+  });
+  // Fila Libro — neto del libro descontado en Gastos
+  const lt = getLibroTotals();
+  if (lt.net !== 0) {
+    acum = Math.round((acum + lt.net)*100)/100;
+    const gastoStr = lt.net < 0
+      ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(lt.net))} €</span>`
+      : `<span style="color:var(--teal);font-weight:600">+${fmt(lt.net)} €</span>`;
+    html += `<tr style="background:var(--gold-lt);font-weight:600">
+      <td>—</td>
+      <td style="text-align:left;color:var(--teal)">Libro</td>
+      <td>—</td>
+      <td>—</td>
+      <td>${gastoStr}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(acum)}</td>
+    </tr>`;
+  }
+  html += '</tbody>';
+  tb.innerHTML = html;
+  document.getElementById('emptyCajas').style.display = 'none';
+  document.getElementById('cajasTable').style.display = 'block';
+}
+
+
+// ─── Notas ────────────────────────────────────────────────────────────────
+function notasChanged() {
+  const ds = state.selectedDay; if (!ds) return;
+  if (!state.days[ds]) return;
+  state.days[ds].notas = document.getElementById('dNotas').value;
+  saveState();
+  renderDayGrid(); // refresh card (may show note indicator)
+}
+
+// ─── Alertas ──────────────────────────────────────────────────────────────
+const ALERT_THRESHOLD = 10;
+
+function getDayStatus(ds) {
+  const f = state.farmatic[ds]||{};
+  const c = state.caixa[ds]||0;
+  const ef = getDayEfectivo(ds);
+  const d = state.days[ds]||{};
+  const glovo = d.glovo||0;
+  const promo = d.promo||0;
+  const gastos = d.gastos||0;
+  const ticket = f.ticket||0;
+  const dineroReal = ef + c + glovo + promo + gastos;
+  const diff = Math.abs(dineroReal - ticket);
+
+  if (ef === 0) return 'yellow';       // sin efectivo
+  if (c === 0)  return 'blue';         // sin visas
+  if (diff > ALERT_THRESHOLD) return 'red'; // diferencia alta
+  return 'green';                      // todo ok
+}
+
+function getDayAlerts() {
+  const alerts = [];
+  state.daysInMonth.forEach(ds => {
+    const status = getDayStatus(ds);
+    if (status !== 'green') {
+      const f = state.farmatic[ds]||{};
+      const c = state.caixa[ds]||0;
+      const ef = getDayEfectivo(ds);
+      const d = state.days[ds]||{};
+      const dineroReal = ef + (c||0) + (d.glovo||0) + (d.promo||0) + (d.gastos||0);
+      const diff = Math.round((dineroReal - (f.ticket||0))*100)/100;
+      const dayNum = parseInt(ds.split('-')[2]);
+      const weekday = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(ds).getDay()];
+      alerts.push({ ds, dayNum, weekday, status, diff, ef, c });
+    }
+  });
+  return alerts;
+}
+
+// ─── Modal validación ──────────────────────────────────────────────────────
+function closeModal() {
+  document.getElementById('validModal').classList.remove('show');
+}
+
+function doExport() {
+  exportExcelCore();
+}
+
+function exportExcel() {
+  const alerts = getDayAlerts();
+  if (alerts.length > 0) {
+    // Show modal with alerts
+    const container = document.getElementById('modalAlerts');
+    const icons = { red:'🔴', yellow:'🟡', blue:'🔵' };
+    const msgs  = {
+      red:    d => `Diferencia de ${(d.diff>=0?'+':'')+fmt(d.diff)} € (umbral: ${ALERT_THRESHOLD}€)`,
+      yellow: d => `Sin efectivo introducido`,
+      blue:   d => `Sin visas del banco`
+    };
+    container.innerHTML = alerts.map(a => `
+      <div class="modal-alert-item ${a.status}">
+        <span class="mai-icon">${icons[a.status]}</span>
+        <span class="mai-text">${msgs[a.status](a)}</span>
+        <span class="mai-date">${a.weekday} ${a.ds.slice(5)}</span>
+      </div>`).join('');
+    document.getElementById('validModal').classList.add('show');
+  } else {
+    exportExcelCore();
+  }
+}
+
+// ─── Export Excel ──────────────────────────────────────────────────────────
+function exportExcelCore() {
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = wb.Workbook || {};
+  wb.Workbook.WBProps = wb.Workbook.WBProps || {};
+  wb.Workbook.WBProps.date1904 = false;
+  const [y,m] = state.month.split('-').map(Number);
+  const monthName = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m];
+  const monthShort = monthName.slice(0,3).toLowerCase();
+  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+
+  // ── helpers ──
+  const n2 = v => Math.round((v||0)*100)/100;
+  const FMT_DATE  = 'DD/MM/YYYY';
+  const FMT_EUR   = '"€"#,##0.00_);[Red]("€"#,##0.00)';
+  const FMT_NUM   = '#,##0.00';
+  const TEAL      = 'FF086C74';   // teal corporativo
+  const TEAL_FONT = 'FFFFFFFF';   // blanco sobre teal
+  const BLUE_LT   = 'FFD9E2F3';  // azul claro filas
+  const GOLD_LT   = 'FFFFF2CC';  // amarillo suave totales
+  const sortedAsc  = [...state.daysInMonth].sort();
+  const sortedDays = [...state.daysInMonth].sort((a,b) => b.localeCompare(a)).filter(ds => getDayEfectivo(ds) > 0);
+
+  const dateSerial = ds => {
+    const [y,m,d] = ds.split('-').map(Number);
+    return Math.round((new Date(y,m-1,d) - new Date(1900,0,1)) / 86400000) + 2;
+  };
+
+  function setCell(ws, r, c, value, {bold=false, bg=null, fontColor=null, fmt=null, align='right', italic=false}={}) {
+    const addr = XLSX.utils.encode_cell({r, c});
+    if (!ws[addr]) ws[addr] = {};
+    const cell = ws[addr];
+    cell.v = value;
+    cell.t = typeof value === 'number' ? 'n' : typeof value === 'boolean' ? 'b' : 's';
+    if (fmt) cell.z = fmt;
+    cell.s = {
+      font: { bold, italic, color: fontColor ? {rgb: fontColor} : {rgb: '000000'}, name: 'Arial', sz: 10 },
+      fill: bg ? { patternType:'solid', fgColor:{rgb: bg} } : { patternType:'none' },
+      alignment: { horizontal: align, vertical: 'center', wrapText: false },
+      border: {
+        top:    { style:'thin', color:{rgb:'FFB0B0B0'} },
+        bottom: { style:'thin', color:{rgb:'FFB0B0B0'} },
+        left:   { style:'thin', color:{rgb:'FFB0B0B0'} },
+        right:  { style:'thin', color:{rgb:'FFB0B0B0'} }
+      }
+    };
+    return cell;
+  }
+
+  function applyRowFmt(ws, r, ncols, {bg=null, bold=false, fontColor=null, fmt=null}={}) {
+    for (let c=0; c<ncols; c++) {
+      const addr = XLSX.utils.encode_cell({r, c});
+      if (ws[addr]) {
+        ws[addr].s = ws[addr].s || {};
+        if (bg) ws[addr].s.fill = { patternType:'solid', fgColor:{rgb: bg} };
+        if (bold) ws[addr].s.font = {...(ws[addr].s.font||{}), bold: true, color: fontColor?{rgb:fontColor}:{rgb:'000000'} };
+        if (fmt) ws[addr].z = fmt;
+      }
+    }
+  }
+
+  function fmtSheet(ws, colWidths, opts={}) {
+    ws['!cols'] = colWidths.map(w => ({wch: w}));
+    return ws;
+  }
+
+  // Apply teal header style to a row range
+  function headerRow(ws, r, fromCol, toCol) {
+    for (let c=fromCol; c<=toCol; c++) {
+      const addr = XLSX.utils.encode_cell({r, c});
+      if (!ws[addr]) continue;
+      ws[addr].s = {
+        font: { bold:true, color:{rgb:'FFFFFFFF'}, name:'Arial', sz:10 },
+        fill: { patternType:'solid', fgColor:{rgb: TEAL} },
+        alignment: { horizontal:'center', vertical:'center' },
+        border: { top:{style:'medium',color:{rgb:TEAL}}, bottom:{style:'medium',color:{rgb:TEAL}},
+                  left:{style:'thin',color:{rgb:'FF044F57'}}, right:{style:'thin',color:{rgb:'FF044F57'}} }
+      };
+    }
+  }
+
+  // Apply euro format to numeric cells in a row range
+  function euroRow(ws, r, fromCol, toCol, bg=null) {
+    for (let c=fromCol; c<=toCol; c++) {
+      const addr = XLSX.utils.encode_cell({r, c});
+      if (!ws[addr]) continue;
+      if (typeof ws[addr].v === 'number') {
+        ws[addr].z = FMT_EUR;
+        ws[addr].t = 'n';
+      }
+      if (bg) {
+        ws[addr].s = ws[addr].s || {};
+        ws[addr].s.fill = { patternType:'solid', fgColor:{rgb: bg} };
+        ws[addr].s.font = { name:'Arial', sz:10 };
+        ws[addr].s.alignment = { horizontal:'right', vertical:'center' };
+        ws[addr].s.border = { top:{style:'thin',color:{rgb:'FFB0B0B0'}}, bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                               left:{style:'thin',color:{rgb:'FFB0B0B0'}}, right:{style:'thin',color:{rgb:'FFB0B0B0'}} };
+      }
+    }
+  }
+
+  // ── 1. FARMATIC — copia fiel de todos los valores originales ─────────────
+  const fRows = [['Fecha Venta','Libre Contado','Libre Crédito','Libre Total',
+    'Receta Contado','Receta Crédito','Receta Total','Total Venta',
+    '- Dtos.','= Venta Neta','%Margen','- Pdte.Receta','= Venta Fcia']];
+  sortedAsc.forEach(ds => {
+    const f = state.farmatic[ds]||{};
+    if (f.cols && f.cols.length === 13) {
+      // Usar valores originales — col 0 convertir a Date real de Excel
+      // Convertir fecha YYYY-MM-DD a número serial de Excel
+      const serial = dateSerial(ds);
+      const row = f.cols.map((v, k) => k === 0 ? serial : v);
+      fRows.push(row);
+    } else {
+      const ffSerial = dateSerial(ds);
+      fRows.push([ffSerial,
+        n2(f.ticket),0,n2(f.ticket),n2(f.soe),0,n2(f.soe),
+        n2(f.ticket+f.soe),0,n2(f.ventaNeta||f.ticket),0,n2(f.soe),n2(f.ticket)]);
+    }
+  });
+  const wsFarmatic = XLSX.utils.aoa_to_sheet(fRows);
+  // Header row teal
+  headerRow(wsFarmatic, 0, 0, 12);
+  // Date format col A, euro format cols B-M, alternating row bg
+  for (let r=1; r<fRows.length; r++) {
+    const bg = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+    const dateCell = wsFarmatic[XLSX.utils.encode_cell({r, c:0})];
+    if (dateCell) { dateCell.t='n'; dateCell.z=FMT_DATE;
+      dateCell.s = { font:{name:'Arial',sz:10}, fill:{patternType:'solid',fgColor:{rgb:bg}},
+        alignment:{horizontal:'center',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}} };
+    }
+    euroRow(wsFarmatic, r, 1, 12, bg);
+  }
+  fmtSheet(wsFarmatic, [13,12,12,12,13,13,12,12,8,12,8,13,12]);
+  XLSX.utils.book_append_sheet(wb, wsFarmatic, 'Farmatic');
+
+  // ── 2. LA CAIXA — exportar filas originales del banco ───────────────────
+  const cRows = state.caixaRawRows && state.caixaRawRows.length > 0
+    ? state.caixaRawRows.map(r => [...(r||[])])
+    : [['Movimientos de la cuenta','','','',''],
+       ['Importes expresados en euros','','','',''],
+       ['Fecha','Fecha valor','Movimiento','Más datos','Importe']];
+  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows);
+  fmtSheet(wsCaixa, [14,14,20,24,10]);
+  XLSX.utils.book_append_sheet(wb, wsCaixa, 'La caixa');
+
+  // ── 3. RESUMEN ───────────────────────────────────────────────────────────
+  // Fórmulas exactas del original:
+  //   Caja (col H)       = efectivo recogido empleadas
+  //   SOE  (col I)       = pdte receta Farmatic
+  //   Dinero Real (col J) = Caja + Visas + Glovo + Promociones
+  //   Total Real  (col K) = Dinero Real + SOE
+  //   Diferencia  (col M) = Dinero Real - Ticket Farmatic
+  const rRows = [
+    ['','','','','','','','','','','','',''],   // fila 1 vacía
+    ['','','','','','',monthName,'','','','','',''],  // fila 2: mes
+    ['','','','','','','','','','','','',''],   // fila 3 vacía
+    ['','FECHA','TICKET','INGRESOS','','','','TCAJA','SOE','VTA CONT','V DIARIA','VTOTAL','DIFERENCIA','NOTAS'],
+    ['','Fecha','Dinero Farmatic','Visas','Transferencias','Glovo','Promociones','Caja','SOE','Dinero Real','Total Real','Total acumulado','DIFERENCIA','Notas'],
+    ['','','','','','','',0,'','',0,0,0,''],  // fila totales iniciales
+  ];
+  // Datos en orden descendente (más reciente primero) como en el original
+  sortedDays.forEach(ds => {
+    const f  = state.farmatic[ds]||{};
+    const c  = state.caixa[ds]||0;
+    const d  = state.days[ds]||{};
+    const caja  = n2(getDayEfectivo(ds));
+    const glovo = n2(d.glovo||0);
+    const promo = n2(d.promo||0);
+    const gastos= n2(d.gastos||0);
+    const soe   = n2(f.soe||0);
+    const ticket= n2(f.ticket||0);
+    const dineroReal = n2(caja + c + glovo + promo + gastos);
+    const totalReal  = n2(dineroReal + soe);
+    const diff       = n2(dineroReal - ticket);
+        const rSerial = dateSerial(ds);
+    const notasExp = state.days[ds]?.notas?.trim() || '';
+    rRows.push(['', rSerial, ticket, n2(c), 0, glovo, promo, caja, soe, dineroReal, totalReal, totalReal, diff, notasExp]);
+  });
+  // Fila totales al final
+  rRows.push(['', '', n2(sortedDays.reduce((s,ds)=>s+(state.farmatic[ds]?.ticket||0),0)),
+    n2(sortedDays.reduce((s,ds)=>s+(state.caixa[ds]||0),0)), 0,
+    n2(sortedDays.reduce((s,ds)=>s+(state.days[ds]?.glovo||0),0)), 0,
+    n2(sortedDays.reduce((s,ds)=>s+getDayEfectivo(ds),0)), '', '', '', '', '', '']);
+
+  const wsResumen = XLSX.utils.aoa_to_sheet(rRows);
+  // Nombre del mes — bold teal
+  const mnCell = wsResumen[XLSX.utils.encode_cell({r:1, c:6})];
+  if (mnCell) mnCell.s = { font:{bold:true, name:'Arial', sz:13, color:{rgb:'FF086C74'}}, alignment:{horizontal:'center'} };
+  // Fila 3 (idx 3): cabeceras grupo — teal
+  headerRow(wsResumen, 3, 1, 12);
+  // Fila 4 (idx 4): sub-cabeceras — teal
+  headerRow(wsResumen, 4, 1, 12);
+  // Fila 5 (idx 5): totales iniciales — azul claro
+  euroRow(wsResumen, 5, 1, 12, BLUE_LT);
+  // Filas de datos (idx 6 en adelante, hasta penúltima)
+  for (let r=6; r<rRows.length-1; r++) {
+    const bg = r%2===0 ? 'FFFFFFFF' : 'FFF2F8F8';
+    // Fecha (col 1) — centrada con formato fecha
+    const dCell = wsResumen[XLSX.utils.encode_cell({r, c:1})];
+    if (dCell && typeof dCell.v==='number') {
+      dCell.t='n'; dCell.z=FMT_DATE;
+      dCell.s = { font:{name:'Arial',sz:10}, fill:{patternType:'solid',fgColor:{rgb:bg}},
+        alignment:{horizontal:'center',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}} };
+    }
+    // Columnas numéricas (cols 2-11) — formato euro
+    euroRow(wsResumen, r, 2, 11, bg);
+    // Notas (col 13) — texto izquierda, italic
+    const notasCell = wsResumen[XLSX.utils.encode_cell({r, c:13})];
+    if (notasCell && notasCell.v) {
+      notasCell.s = {font:{name:'Arial',sz:10,italic:true,color:{rgb:'FF7a7a7a'}},
+        fill:{patternType:'solid',fgColor:{rgb:bg}}, alignment:{horizontal:'left',vertical:'center',wrapText:true},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    }
+    // Diferencia (col 12) — verde si cuadra, rojo si no
+    const diffCell = wsResumen[XLSX.utils.encode_cell({r, c:12})];
+    if (diffCell && typeof diffCell.v==='number') {
+      const ok = Math.abs(diffCell.v) < 1;
+      diffCell.t='n'; diffCell.z=FMT_EUR;
+      diffCell.s = { font:{bold:true, name:'Arial', sz:10, color:{rgb: ok ? 'FF086C74' : 'FFCC0000'}},
+        fill:{patternType:'solid',fgColor:{rgb:bg}}, alignment:{horizontal:'right',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}} };
+    }
+  }
+  // Última fila: totales — fondo dorado
+  const totR = rRows.length-1;
+  euroRow(wsResumen, totR, 1, 12, GOLD_LT);
+  // Freeze top rows and set col widths
+  wsResumen['!freeze'] = {xSplit:0, ySplit:5};
+  fmtSheet(wsResumen, [3,12,14,12,12,8,12,8,10,11,11,14,12,24]);
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+  // ── 4. CAJAS ─────────────────────────────────────────────────────────────
+  // Columnas: Fecha | Concepto | Caja | Caixa | Gastos | Efectivo total
+  // Efectivo total[d] = Efectivo total[d-1] + Caja[d] - Caixa[d] - Gastos[d]
+  const cajasRows = [
+    ['','','','','',''],
+    ['','','',monthName,'',''],
+    ['','','','','',''],
+    ['','Fecha','Concepto','Caja','Caixa','Gastos','Efectivo total'],
+    ['','','Inicio','','','',n2(saldo0)],
+  ];
+  let acum = saldo0;
+  sortedAsc.forEach(ds => {
+    const ef     = n2(getDayEfectivo(ds));
+    const gastos = n2(state.days[ds]?.gastos||0);
+    const cajero = n2(state.cajero?.[ds]||0);
+    acum = n2(acum + ef - cajero - gastos);
+    const cSerial = dateSerial(ds);
+    cajasRows.push(['', cSerial, ds, ef, cajero||'', gastos||'', acum]);
+  });
+  const wsCajas_unused = {}; // replaced by wsC2 below
+  if(false){
+  headerRow(wsCajas_unused, 3, 1, 6);
+  // Inicio row (idx 4)
+  euroRow(wsCajas, 4, 2, 6, BLUE_LT);
+  // Data rows
+  for (let r=5; r<cajasRows.length; r++) {
+    const bg = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+    const dCell = wsCajas[XLSX.utils.encode_cell({r, c:1})];
+    if (dCell && typeof dCell.v==='number') {
+      dCell.t='n'; dCell.z=FMT_DATE;
+      dCell.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg}},
+        alignment:{horizontal:'center',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    }
+    // Concepto col (C=2) — left aligned text
+    const cCell = wsCajas[XLSX.utils.encode_cell({r, c:2})];
+    if (cCell) cCell.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg}},
+      alignment:{horizontal:'left',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+              left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    euroRow(wsCajas, r, 3, 6, bg);
+    // Efectivo total (col 6) bold teal
+    const etCell = wsCajas[XLSX.utils.encode_cell({r, c:6})];
+    if (etCell) etCell.s={font:{bold:true,name:'Arial',sz:10,color:{rgb:'FF086C74'}},
+      fill:{patternType:'solid',fgColor:{rgb:bg}}, alignment:{horizontal:'right',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+              left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+  }
+  }
+  // Fila Libro al final
+  const lt = getLibroTotals();
+  const cajasLastAccum = cajasRows.length>5 ? cajasRows[cajasRows.length-1][6] : saldo0;
+  const libroAccumFinal = n2(cajasLastAccum + lt.net);
+  const libroRowIdx = cajasRows.length;
+  cajasRows.push(['','','Libro', lt.med||'', '', Math.abs(lt.nomina)||'', libroAccumFinal]);
+  const wsC2 = XLSX.utils.aoa_to_sheet(cajasRows);
+  // Copy formatting from wsCajas — rebuild with new rows
+  // Header
+  headerRow(wsC2, 3, 1, 6);
+  euroRow(wsC2, 4, 2, 6, BLUE_LT);
+  for (let r=5; r<cajasRows.length-1; r++) {
+    const bg2 = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+    const dC = wsC2[XLSX.utils.encode_cell({r, c:1})];
+    if (dC && typeof dC.v==='number') { dC.t='n'; dC.z=FMT_DATE;
+      dC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg2}},alignment:{horizontal:'center',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}}; }
+    const cC = wsC2[XLSX.utils.encode_cell({r, c:2})];
+    if (cC) cC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg2}},alignment:{horizontal:'left',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    euroRow(wsC2, r, 3, 6, bg2);
+    const etC = wsC2[XLSX.utils.encode_cell({r, c:6})];
+    if (etC) etC.s={font:{bold:true,name:'Arial',sz:10,color:{rgb:'FF086C74'}},fill:{patternType:'solid',fgColor:{rgb:bg2}},alignment:{horizontal:'right',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+  }
+  // Libro row — gold
+  const lR = cajasRows.length-1;
+  for (let c=1; c<=6; c++) {
+    const lC = wsC2[XLSX.utils.encode_cell({r:lR, c})];
+    if (lC) { if(typeof lC.v==='number'){lC.t='n';lC.z=FMT_EUR;}
+      lC.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:c===2?'left':'right',vertical:'center'},
+        border:{top:{style:'medium',color:{rgb:'FF086C74'}},bottom:{style:'medium',color:{rgb:'FF086C74'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}}; }
+  }
+  fmtSheet(wsC2, [3,12,20,10,10,8,13]);
+  XLSX.utils.book_append_sheet(wb, wsC2, 'Cajas');
+
+  // ── 5. HOJAS DIARIAS ─────────────────────────────────────────────────────
+  sortedAsc.forEach(ds => {
+    const f      = state.farmatic[ds]||{};
+    const c      = state.caixa[ds]||0;
+    const d      = state.days[ds]||{employees:[]};
+    const caja   = n2(getDayEfectivo(ds));
+    const glovo  = n2(d.glovo||0);
+    const promo  = n2(d.promo||0);
+    const gastos = n2(d.gastos||0);
+    const ticket = n2(f.ticket||0);
+    const soe    = n2(f.soe||0);
+    const ventaNeta = n2(f.ventaNeta||0);
+    const dineroReal = n2(caja + c + glovo + promo + gastos);
+    const diff = n2(dineroReal - ticket);
+    const dayNum = parseInt(ds.split('-')[2]);
+
+    const empGlovo   = d.employees.filter(e => e.name.toLowerCase().includes('luc'));
+    const empNormal  = d.employees.filter(e => !e.name.toLowerCase().includes('luc'));
+    const totalEfNormal = n2(empNormal.reduce((s,e)=>s+(e.efectivo||0),0));
+    const totalGlovo    = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
+    const totalEfAll    = n2(caja);
+
+    // Helper: apply style to a cell
+    const sc = (ws, r, c, v, s) => {
+      const addr = XLSX.utils.encode_cell({r,c});
+      ws[addr] = { v, t: typeof v==='number'?'n':typeof v==='string'?'s':'n', s };
+      if (typeof v==='number' && s.z) ws[addr].z = s.z;
+    };
+
+    // Build sheet manually for precise control
+    const wsDay = {};
+    const BASE  = {font:{name:'Arial',sz:11}};
+    const BOLD  = {font:{name:'Arial',sz:11,bold:true}};
+    const EURO  = {font:{name:'Arial',sz:11}, z:FMT_EUR};
+    const EURO_BG = {font:{name:'Arial',sz:11}, z:FMT_EUR, fill:{patternType:'solid',fgColor:{rgb:BLUE_LT}}, alignment:{horizontal:'center'}};
+    const DIFF_OK  = {font:{name:'Arial',sz:11,bold:true,color:{rgb:'FF086C74'}}, z:FMT_EUR};
+    const DIFF_ERR = {font:{name:'Arial',sz:11,bold:true,color:{rgb:'FFCC0000'}}, z:FMT_EUR};
+    const HDR_LBL  = {font:{name:'Arial',sz:11,bold:true}, alignment:{horizontal:'center'}};
+    const EMP_NAME = {font:{name:'Arial',sz:12}, alignment:{horizontal:'center'}};
+    const EMP_NUM  = {font:{name:'Arial',sz:11}, z:FMT_EUR};
+
+    // Row 4 (idx 3): "Cuadre de Caja" — teal background, merged F4:I6
+    sc(wsDay, 3, 5, 'Cuadre de Caja', {
+      font:{name:'Arial',sz:24,bold:true,color:{rgb:'FFFFFFFF'}},
+      fill:{patternType:'solid',fgColor:{rgb:TEAL}},
+      alignment:{horizontal:'center',vertical:'center'}
+    });
+
+    // Row 9 (idx 8): date — merged D9:K9
+    const dSerial = dateSerial(ds);
+    sc(wsDay, 8, 3, dSerial, {
+      font:{name:'Arial',sz:14,bold:true},
+      alignment:{horizontal:'center',vertical:'center'},
+      z: FMT_DATE
+    });
+    wsDay[XLSX.utils.encode_cell({r:8,c:3})].t = 'n';
+
+    // Row 12 (idx 11): section headers
+    sc(wsDay, 11, 3, 'GASTOS',   HDR_LBL);
+    sc(wsDay, 11, 6, 'RESUMEN',  HDR_LBL);
+    sc(wsDay, 11, 9, 'TICKET',   HDR_LBL);
+
+    // Rows 13-18 (idx 12-17): RESUMEN block — blue bg numbers
+    const resumRows = [
+      [gastos, 'Gastos',      ticket,     'DINERO'],
+      [c,      'Visas',       soe,        'SOE'],
+      [caja,   'Dinero',      ventaNeta,  'TICKET TOTAL'],
+      [glovo,  'Glovo',       diff,       'Faltan'],
+      [promo,  'Promociones', null,       null],
+    ];
+    resumRows.forEach(([numG, lblG, numT, lblT], i) => {
+      const r = 12 + i;
+      sc(wsDay, r, 6, numG,  EURO_BG);
+      sc(wsDay, r, 7, lblG,  {font:{name:'Arial',sz:11},alignment:{horizontal:'center'}});
+      if (numT !== null) {
+        const isDiff = lblT === 'Faltan';
+        const s = isDiff
+          ? (Math.abs(numT)<1 ? DIFF_OK : DIFF_ERR)
+          : {font:{name:'Arial',sz:11}, z:FMT_EUR};
+        sc(wsDay, r, 9, numT, s);
+        wsDay[XLSX.utils.encode_cell({r,c:9})].t = 'n';
+      }
+      if (lblT) sc(wsDay, r, 10, lblT, {font:{name:'Arial',sz:11}});
+    });
+
+    // Row 18 (idx 17): Total row
+    sc(wsDay, 17, 3, 'Total',     {font:{name:'Arial',sz:11,bold:true},alignment:{horizontal:'right'}});
+    sc(wsDay, 17, 4, gastos,      EURO);
+    sc(wsDay, 17, 6, dineroReal,  {...EURO_BG, font:{name:'Arial',sz:11,bold:true,color:{rgb:'FF086C74'}}});
+    sc(wsDay, 17, 7, 'Total',     {font:{name:'Arial',sz:11,bold:true},alignment:{horizontal:'center'}});
+
+    // Row 20 (idx 19): Employee header row
+    ['Total','Efectivo','Gastos','Glovo','Ministerio'].forEach((h,i) => {
+      sc(wsDay, 19, 5+i, h, {
+        font:{name:'Arial',sz:11,bold:true,color:{rgb:'FFFFFFFF'}},
+        fill:{patternType:'solid',fgColor:{rgb:TEAL}},
+        alignment:{horizontal:'center'}
+      });
+    });
+
+    // Employee rows (idx 20+)
+    d.employees.forEach((emp, i) => {
+      const r = 20 + i;
+      const isGl = emp.name.toLowerCase().includes('luc');
+      const ef = n2(isGl ? getLuciaTotal(ds) : (emp.efectivo||0));
+      const bg = i%2===0 ? 'FFFFFFFF' : 'FFF2F8F8';
+      sc(wsDay, r, 4, emp.name, {...EMP_NAME, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 5, ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 6, isGl?'':ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 7, '',  {fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 8, isGl?ef:'', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 9, 0,  {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+    });
+
+    // Totals row
+    const totR = 20 + d.employees.length;
+    [totalEfAll, totalEfNormal, n2(gastos), totalGlovo, 0].forEach((v,i) => {
+      sc(wsDay, totR, 5+i, v, {
+        font:{name:'Arial',sz:11,bold:true,color:{rgb:'FF086C74'}},
+        fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},
+        z:FMT_EUR
+      });
+    });
+
+    // Merged cells
+    wsDay['!merges'] = [
+      {s:{r:3,c:5}, e:{r:5,c:8}},  // F4:I6 — Cuadre de Caja
+      {s:{r:8,c:3}, e:{r:8,c:10}}, // D9:K9 — fecha
+      {s:{r:11,c:3},e:{r:11,c:4}}, // D12:E12 — GASTOS
+      {s:{r:11,c:6},e:{r:11,c:7}}, // G12:H12 — RESUMEN
+      {s:{r:11,c:9},e:{r:11,c:10}},// J12:K12 — TICKET
+    ];
+
+    // Column widths & sheet range
+    wsDay['!cols'] = [
+      {wch:3},{wch:3},{wch:3},{wch:10},{wch:10},
+      {wch:12},{wch:10},{wch:11},{wch:11},{wch:11},{wch:15}
+    ];
+    const lastRow = 20 + d.employees.length;
+    wsDay['!ref'] = `A1:K${lastRow+1}`;
+
+    const label = `${dayNum} - ${monthShort}`;
+    XLSX.utils.book_append_sheet(wb, wsDay, label);
+  });
+
+  // ── 6. HOJA TICKETS LUCÍA ────────────────────────────────────────────────
+  const ltRows = [
+    ['','','',''],
+    ['','','',monthName],
+    ['','','',''],
+    ['','Fecha','Cliente','Importe'],
+  ];
+  let luciaTotal = 0;
+  sortedAsc.forEach(ds => {
+    const tickets = state.days[ds]?.luciaTickets || [];
+    tickets.forEach(t => {
+      const tSerial = dateSerial(ds);
+      ltRows.push(['', tSerial, t.client, n2(t.amount)]);
+      luciaTotal = n2(luciaTotal + t.amount);
+    });
+  });
+  ltRows.push(['','','Total', luciaTotal]);
+  const wsLucia = XLSX.utils.aoa_to_sheet(ltRows);
+  for (let r=4; r<ltRows.length-1; r++) {
+    const cell = wsLucia[XLSX.utils.encode_cell({r, c:1})];
+    if (cell && typeof cell.v === 'number' && cell.v > 1000) { cell.t='n'; cell.z='DD/MM/YYYY'; }
+  }
+  headerRow(wsLucia, 3, 1, 3);
+  for (let r=4; r<ltRows.length-1; r++) {
+    const bg = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+    const dCell = wsLucia[XLSX.utils.encode_cell({r, c:1})];
+    if (dCell && typeof dCell.v==='number' && dCell.v > 1000) {
+      dCell.t='n'; dCell.z=FMT_DATE;
+      dCell.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg}},
+        alignment:{horizontal:'center',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    }
+    const cCell = wsLucia[XLSX.utils.encode_cell({r, c:2})];
+    if (cCell) cCell.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg}},
+      alignment:{horizontal:'left',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+              left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    euroRow(wsLucia, r, 3, 3, bg);
+  }
+  // Total row
+  const ltotR = ltRows.length-1;
+  const ltotCell = wsLucia[XLSX.utils.encode_cell({r:ltotR, c:2})];
+  if (ltotCell) ltotCell.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:'right'}};
+  euroRow(wsLucia, ltotR, 3, 3, GOLD_LT);
+  fmtSheet(wsLucia, [3,12,24,12]);
+  XLSX.utils.book_append_sheet(wb, wsLucia, 'Tickets Lucía');
+
+  // ── 7. HOJA LIBRO ────────────────────────────────────────────────────────
+  const libroExportRows = [
+    ['','',''],
+    ['','',monthName],
+    ['','',''],
+    ['','Concepto','Medicamentos (+/-)','Gastos','Nómina','Saldo'],
+  ];
+  let libroNet = 0;
+  const lb = getLibroState();
+  LIBRO_FIXED.forEach(c => {
+    const item = lb[c.key];
+    const signed = n2(item.sign==='neg' ? -(item.amount||0) : (item.amount||0));
+    libroNet = n2(libroNet + signed);
+    libroExportRows.push(['', c.label, signed, '', '', n2(libroNet)]);
+  });
+  lb.custom.forEach(e => {
+    const signed = n2(e.sign==='neg' ? -(e.amount||0) : (e.amount||0));
+    libroNet = n2(libroNet + signed);
+    libroExportRows.push(['', e.label, signed, '', '', n2(libroNet)]);
+  });
+  libroExportRows.push(['', 'TOTAL', '', '', '', libroNet]);
+  const wsLibro = XLSX.utils.aoa_to_sheet(libroExportRows);
+  // Header row (idx 3)
+  headerRow(wsLibro, 3, 1, 5);
+  // Data rows
+  for (let r=4; r<libroExportRows.length-1; r++) {
+    const bg = r%2===0 ? 'FFFFFFFF' : 'FFF2F8F8';
+    const cCell = wsLibro[XLSX.utils.encode_cell({r, c:1})];
+    if (cCell) cCell.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg}},
+      alignment:{horizontal:'left',vertical:'center'},
+      border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+              left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    const vCell = wsLibro[XLSX.utils.encode_cell({r, c:2})];
+    if (vCell && typeof vCell.v==='number') {
+      vCell.t='n'; vCell.z=FMT_EUR;
+      const isNeg = vCell.v < 0;
+      vCell.s={font:{name:'Arial',sz:10,color:{rgb:isNeg?'FFCC0000':'FF086C74'}},
+        fill:{patternType:'solid',fgColor:{rgb:bg}}, alignment:{horizontal:'right',vertical:'center'},
+        border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
+    }
+  }
+  // Total row — gold
+  const libTotR = libroExportRows.length-1;
+  const libTotLabel = wsLibro[XLSX.utils.encode_cell({r:libTotR,c:1})];
+  if (libTotLabel) libTotLabel.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:'left'}};
+  euroRow(wsLibro, libTotR, 2, 5, GOLD_LT);
+  fmtSheet(wsLibro, [3,22,14,10,12,12]);
+  XLSX.utils.book_append_sheet(wb, wsLibro, 'Libro');
+
+  const fname = `${m}. ${monthName} ${y}.xlsx`;
+  XLSX.writeFile(wb, fname, { bookSST: false, cellStyles: true });
+  toast(`✅ Excel exportado: ${fname}`);
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function fmt(n) {
+  const v = Math.round((n||0)*100)/100;
+  // Forzar coma decimal independientemente del idioma del navegador
+  return v.toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function showTab(id) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  event.target.classList.add('active');
+  if (id === 'stats') renderStats();
+}
+
+function setStep(n) {
+  for (let i=1;i<=4;i++) {
+    const el = document.getElementById('s'+i);
+    if (i < n+1) el.classList.add('done');
+    if (i === n+1) el.classList.add('active');
+  }
+}
+
+function checkExportReady() {
+  const hasFarmatic = Object.keys(state.farmatic).length > 0;
+  const hasCaixa = Object.keys(state.caixa).length > 0;
+  const hasEfectivo = state.daysInMonth.some(ds => getDayEfectivo(ds) > 0);
+  document.getElementById('btnExport').disabled = !(hasFarmatic && hasCaixa && hasEfectivo);
+  if (hasFarmatic && hasCaixa && hasEfectivo) {
+    setStep(3);
+    document.getElementById('s4').classList.add('active');
+  }
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
