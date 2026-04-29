@@ -755,7 +755,7 @@
       <input type="month" id="monthPicker">
     </div>
     <button class="dark-toggle" id="darkToggle" onclick="toggleDark()">🌙</button>
-    <button class="btn-ghost" onclick="clearState()">🗑 Borrar datos</button>
+    <button class="btn-ghost" onclick="showClearMenu()">🗑 Borrar datos</button>
   </div>
 </header>
 
@@ -1221,6 +1221,28 @@
     </div>
   </section>
 
+<!-- Clear Menu Modal -->
+<div class="modal-overlay" id="clearModal">
+  <div class="modal" style="max-width:360px">
+    <h3>🗑 Borrar datos</h3>
+    <p>Selecciona qué quieres borrar:</p>
+    <div class="modal-alerts" style="gap:8px">
+      <button class="btn" style="width:100%;text-align:left;padding:12px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-weight:500"
+        onclick="clearSection('farmatic')">📊 Datos Farmatic (ventas)</button>
+      <button class="btn" style="width:100%;text-align:left;padding:12px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-weight:500"
+        onclick="clearSection('caixa')">🏦 Datos La Caixa (banco)</button>
+      <button class="btn" style="width:100%;text-align:left;padding:12px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-weight:500"
+        onclick="clearSection('efectivo')">👥 Efectivo empleadas</button>
+      <button class="btn" style="width:100%;text-align:left;padding:12px 16px;background:#fff5f5;color:var(--err);border:1px solid #ffcdd2;font-weight:600"
+        onclick="clearSection('all')">⚠️ Borrar todo</button>
+    </div>
+    <div class="modal-btn-row" style="margin-top:16px">
+      <button class="btn-ghost dark" onclick="document.getElementById('clearModal').classList.remove('show')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+
 <!-- Validation Modal -->
 <div class="modal-overlay" id="validModal">
   <div class="modal">
@@ -1282,6 +1304,57 @@ function loadState() {
     }
     return Object.keys(state.farmatic).length > 0;
   } catch(e) { console.warn('No se pudo restaurar:', e); return false; }
+}
+
+
+// ─── Borrar datos selectivo ───────────────────────────────────────────────
+function showClearMenu() {
+  document.getElementById('clearModal').classList.add('show');
+}
+
+function clearSection(section) {
+  document.getElementById('clearModal').classList.remove('show');
+
+  if (section === 'farmatic') {
+    if (!confirm('¿Borrar los datos de Farmatic? Los datos de efectivo y banco se conservan.')) return;
+    state.farmatic = {};
+    state.daysInMonth = [];
+    state.selectedDay = null;
+    document.getElementById('stFarmatic').textContent = 'Selecciona el Excel';
+    document.getElementById('zFarmatic').classList.remove('loaded');
+    document.getElementById('driveStatus').textContent = 'Sin conectar';
+    document.getElementById('driveBtnRefresh').style.display = 'none';
+    document.getElementById('driveBtnConnect').style.display = 'flex';
+    toast('🗑 Datos Farmatic borrados');
+  }
+  else if (section === 'caixa') {
+    if (!confirm('¿Borrar los datos del banco (La Caixa)?')) return;
+    state.caixa = {}; state.cajero = {}; state.caixaRawRows = [];
+    document.getElementById('stCaixa').textContent = 'Selecciona el Excel';
+    document.getElementById('zCaixa').classList.remove('loaded');
+    toast('🗑 Datos La Caixa borrados');
+  }
+  else if (section === 'efectivo') {
+    if (!confirm('¿Borrar el efectivo de todas las empleadas? Los tickets de Lucía y notas se conservan.')) return;
+    Object.keys(state.days).forEach(ds => {
+      if (state.days[ds]?.employees) {
+        state.days[ds].employees.forEach(e => { e.efectivo = 0; });
+        state.days[ds].glovo = 0;
+      }
+    });
+    document.getElementById('stForms').textContent = 'Selecciona el Excel';
+    document.getElementById('zForms').classList.remove('loaded');
+    toast('🗑 Efectivo empleadas borrado');
+  }
+  else if (section === 'all') {
+    if (!confirm('¿Borrar TODOS los datos? Esta acción no se puede deshacer.')) return;
+    clearState();
+    return;
+  }
+
+  saveState();
+  rebuildDays();
+  if (state.selectedDay) renderDayDetail(state.selectedDay);
 }
 
 function clearState() {
@@ -1363,6 +1436,7 @@ window.onload = () => {
     }
     rebuildDays();
     restoreLibro();
+    restoreArqueo();
     toast('💾 Datos restaurados del último uso');
   } else {
     document.getElementById('monthPicker').value = mo;
@@ -1376,6 +1450,7 @@ window.onload = () => {
   });
   initDark();
   initDriveUI();
+  renderArqueoHistorico();
 };
 
 function toDateStr(d) {
@@ -1552,17 +1627,21 @@ function loadForms(evt) {
       count++;
     }
 
-    // Merge into state.days — only overwrite employees from Forms, keep rest
-    // Keep manual edits intact: if employee already has data, ask
+    // Merge into state.days — solo carga días sin efectivo para no machacar datos manuales
     let merged = 0;
+    let skipped = 0;
     Object.entries(grouped).forEach(([ds, empData]) => {
       if (!state.days[ds]) {
-        // Day not yet initialized — init with defaults
         state.days[ds] = {
           employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})),
-          glovo:0, promo:0, gastos:0, luciaTickets:[]
+          glovo:0, promo:0, gastos:0, luciaTickets:[], notas:''
         };
       }
+
+      // Si el día ya tiene efectivo introducido a mano, no tocarlo
+      const yaHayDatos = state.days[ds].employees.some(e => (e.efectivo||0) > 0);
+      if (yaHayDatos) { skipped++; return; }
+
       Object.entries(empData).forEach(([nombre, vals]) => {
         const emp = state.days[ds].employees.find(e =>
           e.name.toLowerCase() === nombre.toLowerCase() ||
@@ -1570,27 +1649,24 @@ function loadForms(evt) {
           e.name.toLowerCase().includes(nombre.toLowerCase())
         );
         if (emp) {
-          emp.efectivo = Math.round((emp.efectivo + vals.efectivo)*100)/100;
-          // Glovo va al campo del día si la empleada no es Lucía
+          emp.efectivo = Math.round(vals.efectivo*100)/100;
           if (vals.glovo > 0) {
-            // Glovo siempre suma al campo del día, independientemente de quién lo haga
             state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
           }
         } else {
-          // Employee not in default list — add them
           state.days[ds].employees.push({name:nombre, efectivo:vals.efectivo, glovo:0, ministerio:0});
         }
         merged++;
       });
     });
 
-    document.getElementById('stForms').textContent = `✓ ${count} entradas · ${Object.keys(grouped).length} días`;
+    const skipMsg = skipped > 0 ? ` · ${skipped} días con datos omitidos` : '';
+    document.getElementById('stForms').textContent = `✓ ${Object.keys(grouped).length} días`;
     document.getElementById('zForms').classList.add('loaded');
     saveState();
     rebuildDays();
-    // If a day is selected, refresh its detail
     if (state.selectedDay && grouped[state.selectedDay]) renderDayDetail(state.selectedDay);
-    toast(`✅ Forms: ${count} entradas cargadas en ${Object.keys(grouped).length} días`);
+    toast(`✅ Forms: ${Object.keys(grouped).length - skipped} días cargados${skipMsg}`);
   };
   reader.readAsArrayBuffer(file);
 }
