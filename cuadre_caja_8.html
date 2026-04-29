@@ -2459,10 +2459,17 @@ function exportBackupEfectivo() {
     const dSerial = dateSerial(ds);
     const tsSerial = dSerial + (22/24); // 22:00h
 
+    // Asignar glovo a la primera empleada con efectivo
+    const empsConEfectivo = d.employees.filter(emp => {
+      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      return ef > 0;
+    });
+    const primeraEmp = empsConEfectivo[0]?.name || '';
+
     d.employees.forEach((emp, i) => {
       const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
       if (ef <= 0) return;
-      const glovo = d.glovo > 0 && i === 0 ? d.glovo : null;
+      const glovo = d.glovo > 0 && emp.name === primeraEmp ? d.glovo : null;
       const notas = d.notas || null;
       rows.push([tsSerial, dSerial, emp.name, 'Mostrador '+(i%2+1), ef, glovo, notas, 0]);
     });
