@@ -2455,15 +2455,16 @@ function exportBackupEfectivo() {
   state.daysInMonth.forEach(ds => {
     const d = state.days[ds];
     if (!d) return;
-    const dayDate = new Date(ds+'T00:00:00');
-    const ts = new Date(ds+'T22:00:00');
+    // Usar número serial Excel en vez de objeto Date (evita problema 1970)
+    const dSerial = dateSerial(ds);
+    const tsSerial = dSerial + (22/24); // 22:00h
 
     d.employees.forEach((emp, i) => {
       const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
       if (ef <= 0) return;
-      const glovo = d.glovo > 0 && i === 0 ? d.glovo : null; // glovo al primer empleado
+      const glovo = d.glovo > 0 && i === 0 ? d.glovo : null;
       const notas = d.notas || null;
-      rows.push([ts, dayDate, emp.name, 'Mostrador '+(i%2+1), ef, glovo, notas, 0]);
+      rows.push([tsSerial, dSerial, emp.name, 'Mostrador '+(i%2+1), ef, glovo, notas, 0]);
     });
   });
 
