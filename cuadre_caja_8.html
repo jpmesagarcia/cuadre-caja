@@ -785,6 +785,10 @@
         <button class="drive-btn secondary" id="driveBtnRefresh" onclick="driveLoadFarmatic()" style="display:none">
           🔄 Cargar Farmatic desde Drive
         </button>
+        <button class="drive-btn secondary" id="driveBtnForms" onclick="driveLoadForms()" style="display:none">
+          🔄 Cargar Efectivo empleadas desde Drive
+        </button>
+        <div class="drive-status" id="driveFormsStatus" style="display:none"></div>
       </div>
 
       <div class="upload-zone" id="zFarmatic">
@@ -2349,11 +2353,84 @@ function driveConnect() {
       document.getElementById('driveStatus').className = 'drive-status ok';
       document.getElementById('driveBtnConnect').style.display = 'none';
       document.getElementById('driveBtnRefresh').style.display = 'flex';
+      document.getElementById('driveBtnForms').style.display = 'flex';
+      document.getElementById('driveFormsStatus').style.display = 'block';
       // Auto-load Farmatic after connecting
       driveLoadFarmatic();
     }
   });
   client.requestAccessToken();
+}
+
+
+async function driveLoadForms() {
+  if (!gdriveToken) { driveConnect(); return; }
+  const btn    = document.getElementById('driveBtnForms');
+  const status = document.getElementById('driveFormsStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Buscando fichero...';
+  status.textContent = 'Buscando Efectivo Empleadas en Drive...';
+  try {
+    // Search for file containing "Efectivo" in the folder
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+name+contains+'Efectivo'+and+trashed=false&orderBy=modifiedTime+desc&fields=files(id,name,modifiedTime,mimeType)`;
+    const searchResp = await fetch(searchUrl, {
+      headers: { Authorization: 'Bearer ' + gdriveToken }
+    });
+    if (!searchResp.ok) throw new Error('Error buscando ficheros: ' + searchResp.status);
+    const searchData = await searchResp.json();
+    let files = searchData.files || [];
+
+    // Filter: prefer xlsx, but also accept Google Sheets
+    const xlsxFiles = files.filter(f => f.mimeType.includes('spreadsheet') || f.name.endsWith('.xlsx'));
+    if (xlsxFiles.length === 0) throw new Error('No se encontró "Efectivo Empleadas" en la carpeta');
+    const file = xlsxFiles[0];
+
+    status.textContent = 'Descargando ' + file.name + '...';
+    btn.textContent = '⏳ Descargando...';
+
+    let arrayBuffer;
+    // If Google Sheet, export as xlsx
+    if (file.mimeType === 'application/vnd.google-apps.spreadsheet') {
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+      const dlResp = await fetch(exportUrl, { headers: { Authorization: 'Bearer ' + gdriveToken } });
+      if (!dlResp.ok) throw new Error('Error exportando Google Sheet');
+      arrayBuffer = await dlResp.arrayBuffer();
+    } else {
+      const dlResp = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+        { headers: { Authorization: 'Bearer ' + gdriveToken } });
+      if (!dlResp.ok) throw new Error('Error descargando fichero');
+      arrayBuffer = await dlResp.arrayBuffer();
+    }
+
+    // Reuse loadForms logic — create a fake event
+    const blob = new Blob([arrayBuffer]);
+    const fakeFile = new File([blob], file.name, {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const fakeEvt = { target: { files: [fakeFile] } };
+
+    // Patch stForms status after load
+    const origToast = window._origToast || toast;
+    loadForms(fakeEvt);
+
+    const modDate = new Date(file.modifiedTime).toLocaleDateString('es-ES');
+    status.textContent = `✓ ${file.name} · ${modDate}`;
+    status.className = 'drive-status ok';
+    btn.textContent = '🔄 Actualizar efectivo desde Drive';
+    btn.disabled = false;
+
+  } catch(err) {
+    console.error('Drive Forms error:', err);
+    status.textContent = '❌ ' + err.message;
+    status.className = 'drive-status err';
+    btn.textContent = '🔄 Reintentar';
+    btn.disabled = false;
+    if (err.message.includes('401') || err.message.includes('403')) {
+      gdriveToken = null;
+      localStorage.removeItem('gdrive_token');
+      document.getElementById('driveBtnConnect').style.display = 'flex';
+      document.getElementById('driveBtnRefresh').style.display = 'none';
+      document.getElementById('driveBtnForms').style.display = 'none';
+    }
+  }
 }
 
 async function driveLoadFarmatic() {
@@ -2451,6 +2528,8 @@ async function driveLoadFarmatic() {
       localStorage.removeItem('gdrive_token');
       document.getElementById('driveBtnConnect').style.display = 'flex';
       document.getElementById('driveBtnRefresh').style.display = 'none';
+      document.getElementById('driveBtnForms').style.display = 'none';
+      document.getElementById('driveFormsStatus').style.display = 'none';
     }
   }
 }
@@ -2464,6 +2543,8 @@ function initDriveUI() {
     document.getElementById('driveStatus').className = 'drive-status';
     document.getElementById('driveBtnConnect').textContent = '🔗 Reconectar con Google';
     document.getElementById('driveBtnRefresh').style.display = 'flex';
+    document.getElementById('driveBtnForms').style.display = 'flex';
+    document.getElementById('driveFormsStatus').style.display = 'block';
   }
 }
 
