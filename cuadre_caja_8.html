@@ -1579,6 +1579,24 @@ function loadFarmatic(evt) {
 
 
 // ─── Load Forms (Google Forms export) ─────────────────────────────────────
+// Parsea números con coma o punto decimal (ej. "15,50" o "15.50")
+function parseNum(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return v;
+  const s = v.toString().trim().replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+function parseNumOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return v;
+  const s = v.toString().trim().toLowerCase();
+  if (s === 'si' || s === 'sí' || s === 'no' || s === '-') return null;
+  const n = parseFloat(s.replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+
 function loadForms(evt) {
   const file = evt.target.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -1601,6 +1619,7 @@ function loadForms(evt) {
     const iEfectivo = cols.findIndex(c=>c.includes('efectivo'));
     const iGlovo    = cols.findIndex(c=>c.includes('glovo'));
     const iComent   = cols.findIndex(c=>c.includes('comentario'));
+    const iGastos   = cols.findIndex(c=>c.includes('gasto'));
 
     // Group by date -> employee
     const grouped = {}; // ds -> {name -> {efectivo, glovo, comentarios}}
@@ -1613,16 +1632,21 @@ function loadForms(evt) {
       const ds = toDateStr(rawDia);
       if (!ds || ds < '2000-01-01') continue;
       const nombre   = (r[iNombre]||'').toString().trim();
-      const efectivo = parseFloat(r[iEfectivo])||0;
-      const glovo    = parseFloat(r[iGlovo])||0;
+      const efectivo = parseNum(r[iEfectivo]);
+      // Glovo y Gastos: si es numérico se usa, si es texto (si/no) se ignora
+      const glovoRaw = iGlovo>=0 ? r[iGlovo] : null;
+      const glovo    = parseNumOrNull(glovoRaw) || 0;
+      const gastosRaw = iGastos>=0 ? r[iGastos] : null;
+      const gastosForms = parseNumOrNull(gastosRaw) || 0;
       const coment   = iComent>=0 ? (r[iComent]||'').toString().trim() : '';
       if (!nombre) continue;
 
       if (!grouped[ds]) grouped[ds] = {};
       // Sum if multiple entries per employee per day
-      if (!grouped[ds][nombre]) grouped[ds][nombre] = {efectivo:0, glovo:0, comentarios:[]};
+      if (!grouped[ds][nombre]) grouped[ds][nombre] = {efectivo:0, glovo:0, gastos:0, comentarios:[]};
       grouped[ds][nombre].efectivo += efectivo;
       grouped[ds][nombre].glovo    += glovo;
+      grouped[ds][nombre].gastos   += gastosForms;
       if (coment) grouped[ds][nombre].comentarios.push(coment);
       count++;
     }
@@ -1652,6 +1676,9 @@ function loadForms(evt) {
           emp.efectivo = Math.round(vals.efectivo*100)/100;
           if (vals.glovo > 0) {
             state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
+          }
+          if (vals.gastos > 0) {
+            state.days[ds].gastos = Math.round(((state.days[ds].gastos||0) + vals.gastos)*100)/100;
           }
         } else {
           state.days[ds].employees.push({name:nombre, efectivo:vals.efectivo, glovo:0, ministerio:0});
