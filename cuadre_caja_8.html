@@ -1435,7 +1435,21 @@ function renderDashboard() {
     pendientePorGastar += resta;
   });
 
-  const previsionCierre = balanceActual - pendientePorGastar;
+  // Ingresos pendientes de llegar (presupuestado - ya recibido)
+  const ingCatMapPrev = {nomina:'Nómina',variable:'Variable Lucía',atocha:'Atocha',cristina:'Pisos Cristina',ninos:'Ayuda niños',saldo_ant:'Saldo mes anterior'};
+  const incLinesPrev = getIncomeLines(currentMonth);
+  let pendienteDeIngreso = 0;
+  incLinesPrev.forEach(line => {
+    const catN = ingCatMapPrev[line.id] || line.label;
+    const recibido = mData.filter(d=>d.tipo==='ingreso'&&(d.categoria===catN||d.categoria===line.label)).reduce((s,d)=>s+d.importe,0);
+    const resta = Math.max(0, line.importe - recibido);
+    pendienteDeIngreso += resta;
+  });
+
+  // Previsión = balance actual + ingresos pendientes - gastos pendientes
+  // Con 0 movimientos → ingr.pendiente = total presup ingresos, gastos pendiente = total presup gastos
+  // → previsión = margen del presupuesto ✓
+  const previsionCierre = balanceActual + pendienteDeIngreso - pendientePorGastar;
   const projEl = document.getElementById('kpi-proyeccion');
   if (projEl) {
     projEl.textContent = (previsionCierre >= 0 ? '+' : '-') + fmt(Math.abs(previsionCierre));
