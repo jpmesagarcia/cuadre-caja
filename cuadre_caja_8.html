@@ -865,12 +865,6 @@
       </div>
 
       <div id="dayGridWrap" style="display:none">
-        <div class="saldo-inicial">
-          <label>💰 Saldo inicial de caja (€) <span id="saldoHeredadoMsg" style="font-size:.7rem;color:var(--teal);font-style:italic"></span></label>
-          <input type="number" id="saldoInicial" value="8949" step="0.01" oninput="recalcAll(); saveSaldoMes(); saveState()">
-          <span style="font-size:.8rem; color:var(--muted)">Importe en caja al inicio del mes</span>
-        </div>
-
         <div class="day-grid" id="dayGrid"></div>
 
         <!-- Day detail panel -->
@@ -998,6 +992,27 @@
       <div class="section-head">
         <h2>Libro de cajas</h2>
       </div>
+
+      <!-- Saldos -->
+      <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="saldo-inicial" style="flex:1;min-width:200px">
+          <label style="font-size:.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500;display:block;margin-bottom:6px">
+            📅 Cierre mes anterior
+          </label>
+          <div id="cierreAnteriorVal" style="font-family:'DM Mono',monospace;font-size:1.2rem;font-weight:600;color:var(--teal);padding:8px 0">—</div>
+          <span style="font-size:.72rem;color:var(--muted)">Calculado automáticamente</span>
+        </div>
+        <div class="saldo-inicial" style="flex:1;min-width:200px">
+          <label style="font-size:.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500;display:block;margin-bottom:6px">
+            💰 Saldo inicial este mes
+          </label>
+          <input type="number" id="saldoInicial" value="0" step="0.01"
+            style="font-family:'DM Mono',monospace;font-size:1.1rem;font-weight:600;width:100%;background:var(--surface2);border:1.5px solid var(--border);color:var(--text);padding:8px 12px;border-radius:7px"
+            oninput="recalcAll(); saveSaldoMes(); saveState()" onfocus="if(this.value=='0')this.value=''" onblur="if(this.value=='')this.value='0'">
+          <span style="font-size:.72rem;color:var(--muted)">Introdúcelo manualmente</span>
+        </div>
+      </div>
+
       <div id="emptyCajas" class="empty-state">
         <div class="emoji">🗃</div>
         <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
@@ -1276,7 +1291,7 @@ function saveState() {
       caixaRawRows: state.caixaRawRows,
       days:     state.days,
       month:    state.month,
-      saldoInicial: document.getElementById('saldoInicial')?.value || '8949',
+      saldoInicial: document.getElementById('saldoInicial')?.value || '0',
       libro:    state.libro,
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
@@ -1454,8 +1469,6 @@ window.onload = () => {
   document.getElementById('monthPicker').addEventListener('change', e => {
     const newMonth = e.target.value;
     if (state.month && state.month !== newMonth) {
-      // Save saldo and cierre of current month before switching
-      saveSaldoMes();
       saveCierreMes(state.month);
     }
     state.month = newMonth;
@@ -1464,15 +1477,13 @@ window.onload = () => {
     LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
     state.libro.custom = [];
     restoreLibro();
+    // Restore saldo of this month if saved
+    const savedSaldo = state.saldosPorMes?.[newMonth];
+    const el = document.getElementById('saldoInicial');
+    if (el) el.value = savedSaldo !== undefined ? savedSaldo : 0;
     saveState();
     rebuildDays();
-    // Restore this month's saldo if it exists, otherwise suggest from prev month
-    if (state.saldosPorMes?.[newMonth] !== undefined) {
-      document.getElementById('saldoInicial').value = state.saldosPorMes[newMonth];
-      recalcAll();
-    } else {
-      suggestSaldoInicial(newMonth);
-    }
+    recalcAll();
   });
   initDark();
   initDriveUI();
@@ -2712,8 +2723,9 @@ function arqueoChanged() {
     const cajero = state.cajero?.[ds]||0;
     acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
   });
-  const lt = getLibroTotals();
-  acumEsperado = Math.round((acumEsperado + lt.net)*100)/100;
+  // Aplicar libro (ya incluye el neto del libro)
+  const ltArqueo = getLibroTotals();
+  acumEsperado = Math.round((acumEsperado + ltArqueo.net)*100)/100;
 
   // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
   const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
@@ -2782,6 +2794,7 @@ function saveArqueoSnapshot() {
   state.daysInMonth.forEach(ds => {
     acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
   });
+  // Incluir neto del libro
   acumEsp = Math.round((acumEsp + getLibroTotals().net)*100)/100;
   const esperadoNeto = Math.round((acumEsp - totalLucia)*100)/100;
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
@@ -2832,6 +2845,38 @@ function restoreSaldoMes(month) {
   if (state.saldosPorMes[month] !== undefined) {
     el.value = state.saldosPorMes[month];
   }
+}
+
+
+function renderCierreAnterior() {
+  const el = document.getElementById('cierreAnteriorVal');
+  if (!el) return;
+  if (!state.month) { el.textContent = '—'; return; }
+  const prevMonth = getPrevMonth(state.month);
+  // Try to calculate from loaded data
+  const prevDays = Object.keys(state.farmatic||{}).filter(ds => ds.startsWith(prevMonth));
+  let cierre = null;
+  if (prevDays.length > 0) {
+    const saldo0 = parseFloat(document.getElementById('saldoInicial')?.value)||0;
+    // We need to calc with prev month's own saldo
+    const prevSaldo = state.saldosPorMes?.[prevMonth] || 0;
+    let acum = prevSaldo;
+    prevDays.sort().forEach(ds => {
+      const ef = getDayEfectivo(ds);
+      const gastos = state.days[ds]?.gastos||0;
+      const cajero = state.cajero?.[ds]||0;
+      acum = Math.round((acum + ef - cajero - gastos)*100)/100;
+    });
+    // Apply libro — but libro resets each month so prev month libro is 0 unless saved
+    cierre = acum;
+    // Save it
+    if (!state.cierresMensuales) state.cierresMensuales = {};
+    state.cierresMensuales[prevMonth] = cierre;
+  } else if (state.cierresMensuales?.[prevMonth] !== undefined) {
+    cierre = state.cierresMensuales[prevMonth];
+  }
+  el.textContent = cierre !== null ? fmt(cierre) + ' €' : '—';
+  el.style.color = cierre !== null ? 'var(--teal)' : 'var(--muted)';
 }
 
 // ─── Cierres mensuales ────────────────────────────────────────────────────
@@ -3103,6 +3148,7 @@ function getLibroGasto() {
 }
 
 function renderCajas() {
+  renderCierreAnterior();
   const tb = document.getElementById('tCajas');
   const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
   let html = `<thead><tr>
