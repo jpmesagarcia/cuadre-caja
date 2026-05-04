@@ -866,7 +866,7 @@
 
       <div id="dayGridWrap" style="display:none">
         <div class="saldo-inicial">
-          <label>💰 Saldo inicial de caja (€)</label>
+          <label>💰 Saldo inicial de caja (€) <span id="saldoHeredadoMsg" style="font-size:.7rem;color:var(--teal);font-style:italic"></span></label>
           <input type="number" id="saldoInicial" value="8949" step="0.01" oninput="recalcAll(); saveState()">
           <span style="font-size:.8rem; color:var(--muted)">Importe en caja al inicio del mes</span>
         </div>
@@ -1279,7 +1279,8 @@ function saveState() {
       saldoInicial: document.getElementById('saldoInicial')?.value || '8949',
       libro:    state.libro,
       arqueo:   state.arqueo,
-      arqueoHistorico: state.arqueoHistorico
+      arqueoHistorico: state.arqueoHistorico,
+      cierresMensuales: state.cierresMensuales
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     // Show save indicator briefly
@@ -1401,6 +1402,7 @@ const state = {
   selectedDay: null,
   arqueo: null,
   arqueoHistorico: [],
+  cierresMensuales: {},
   defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Sergio','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -1448,9 +1450,15 @@ window.onload = () => {
   }
 
   document.getElementById('monthPicker').addEventListener('change', e => {
-    state.month = e.target.value;
+    const newMonth = e.target.value;
+    // Save cierre of current month before switching
+    if (state.month && state.month !== newMonth) {
+      saveCierreMes(state.month);
+    }
+    state.month = newMonth;
     saveState();
     rebuildDays();
+    suggestSaldoInicial(newMonth);
   });
   initDark();
   initDriveUI();
@@ -2792,6 +2800,65 @@ function renderArqueoHistorico() {
         +'<span style="font-family:DM Mono,monospace;color:var(--muted);font-size:.75rem">'+fmt(h.totalFisico)+' €</span>'
         +'</div>';
     }).join('');
+}
+
+
+// ─── Cierres mensuales ────────────────────────────────────────────────────
+function calcCierreMes(month) {
+  // Calcula el efectivo acumulado final del mes (última fila de Cajas)
+  const days = Object.keys(state.farmatic).filter(ds => ds.startsWith(month)).sort();
+  if (days.length === 0) return null;
+  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  let acum = saldo0;
+  days.forEach(ds => {
+    const ef     = getDayEfectivo(ds);
+    const gastos = state.days[ds]?.gastos||0;
+    const cajero = state.cajero?.[ds]||0;
+    acum = Math.round((acum + ef - cajero - gastos)*100)/100;
+  });
+  // Apply libro
+  acum = Math.round((acum + getLibroTotals().net)*100)/100;
+  return acum;
+}
+
+function saveCierreMes(month) {
+  const cierre = calcCierreMes(month);
+  if (cierre !== null) {
+    if (!state.cierresMensuales) state.cierresMensuales = {};
+    state.cierresMensuales[month] = cierre;
+    saveState();
+  }
+  return cierre;
+}
+
+function getPrevMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  const prev = m === 1 ? `${y-1}-12` : `${y}-${String(m-1).padStart(2,'0')}`;
+  return prev;
+}
+
+function suggestSaldoInicial(newMonth) {
+  const prevMonth = getPrevMonth(newMonth);
+  // First try to calculate from current data if prev month is loaded
+  let cierre = null;
+  const prevDays = Object.keys(state.farmatic||{}).filter(ds => ds.startsWith(prevMonth));
+  if (prevDays.length > 0) {
+    // Save cierre of prev month before switching
+    cierre = saveCierreMes(prevMonth);
+  } else if (state.cierresMensuales?.[prevMonth] !== undefined) {
+    cierre = state.cierresMensuales[prevMonth];
+  }
+
+  if (cierre !== null) {
+    const el = document.getElementById('saldoInicial');
+    if (el) {
+      el.value = cierre;
+      el.style.borderColor = 'var(--teal)';
+      el.title = `Saldo heredado del cierre de ${prevMonth}`;
+      setTimeout(() => { el.style.borderColor = ''; el.title = ''; }, 3000);
+    }
+    toast(`💰 Saldo inicial actualizado: ${fmt(cierre)} € (cierre de ${prevMonth})`);
+  }
 }
 
 // ─── Atajos de teclado ────────────────────────────────────────────────────
