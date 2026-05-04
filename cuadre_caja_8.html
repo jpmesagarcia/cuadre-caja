@@ -1405,7 +1405,7 @@ const state = {
   arqueoHistorico: [],
   cierresMensuales: {},
   saldosPorMes: {},
-  defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Sergio','Ana','Nerea','Alicia','Lucía'],
+  defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Laura','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
 
@@ -1459,6 +1459,11 @@ window.onload = () => {
       saveCierreMes(state.month);
     }
     state.month = newMonth;
+    // Reset libro al cambiar de mes
+    state.libro = {};
+    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+    state.libro.custom = [];
+    restoreLibro();
     saveState();
     rebuildDays();
     // Restore this month's saldo if it exists, otherwise suggest from prev month
