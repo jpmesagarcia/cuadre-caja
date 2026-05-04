@@ -867,7 +867,7 @@
       <div id="dayGridWrap" style="display:none">
         <div class="saldo-inicial">
           <label>💰 Saldo inicial de caja (€) <span id="saldoHeredadoMsg" style="font-size:.7rem;color:var(--teal);font-style:italic"></span></label>
-          <input type="number" id="saldoInicial" value="8949" step="0.01" oninput="recalcAll(); saveState()">
+          <input type="number" id="saldoInicial" value="8949" step="0.01" oninput="recalcAll(); saveSaldoMes(); saveState()">
           <span style="font-size:.8rem; color:var(--muted)">Importe en caja al inicio del mes</span>
         </div>
 
@@ -1280,7 +1280,8 @@ function saveState() {
       libro:    state.libro,
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
-      cierresMensuales: state.cierresMensuales
+      cierresMensuales: state.cierresMensuales,
+      saldosPorMes: state.saldosPorMes
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     // Show save indicator briefly
@@ -1403,6 +1404,7 @@ const state = {
   arqueo: null,
   arqueoHistorico: [],
   cierresMensuales: {},
+  saldosPorMes: {},
   defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Sergio','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -1451,14 +1453,21 @@ window.onload = () => {
 
   document.getElementById('monthPicker').addEventListener('change', e => {
     const newMonth = e.target.value;
-    // Save cierre of current month before switching
     if (state.month && state.month !== newMonth) {
+      // Save saldo and cierre of current month before switching
+      saveSaldoMes();
       saveCierreMes(state.month);
     }
     state.month = newMonth;
     saveState();
     rebuildDays();
-    suggestSaldoInicial(newMonth);
+    // Restore this month's saldo if it exists, otherwise suggest from prev month
+    if (state.saldosPorMes?.[newMonth] !== undefined) {
+      document.getElementById('saldoInicial').value = state.saldosPorMes[newMonth];
+      recalcAll();
+    } else {
+      suggestSaldoInicial(newMonth);
+    }
   });
   initDark();
   initDriveUI();
@@ -2803,6 +2812,23 @@ function renderArqueoHistorico() {
 }
 
 
+
+function saveSaldoMes() {
+  if (!state.month) return;
+  const v = parseFloat(document.getElementById('saldoInicial').value)||0;
+  if (!state.saldosPorMes) state.saldosPorMes = {};
+  state.saldosPorMes[state.month] = v;
+}
+
+function restoreSaldoMes(month) {
+  if (!state.saldosPorMes) return;
+  const el = document.getElementById('saldoInicial');
+  if (!el) return;
+  if (state.saldosPorMes[month] !== undefined) {
+    el.value = state.saldosPorMes[month];
+  }
+}
+
 // ─── Cierres mensuales ────────────────────────────────────────────────────
 function calcCierreMes(month) {
   // Calcula el efectivo acumulado final del mes (última fila de Cajas)
@@ -2842,22 +2868,27 @@ function suggestSaldoInicial(newMonth) {
   // First try to calculate from current data if prev month is loaded
   let cierre = null;
   const prevDays = Object.keys(state.farmatic||{}).filter(ds => ds.startsWith(prevMonth));
-  if (prevDays.length > 0) {
-    // Save cierre of prev month before switching
-    cierre = saveCierreMes(prevMonth);
+  if (prevDays.length > 0 && state.month !== newMonth) {
+    // Only save cierre of prev month if it was the month we just left
+    cierre = state.cierresMensuales?.[prevMonth] !== undefined
+      ? state.cierresMensuales[prevMonth]
+      : saveCierreMes(prevMonth);
   } else if (state.cierresMensuales?.[prevMonth] !== undefined) {
     cierre = state.cierresMensuales[prevMonth];
   }
 
   if (cierre !== null) {
+    // Only update if the month has no saved saldo or it's the default 8949
+    const savedSaldo = state.saldosPorMes?.[newMonth];
+    if (savedSaldo !== undefined) return; // ya tiene saldo propio, no tocar
+
     const el = document.getElementById('saldoInicial');
     if (el) {
       el.value = cierre;
       el.style.borderColor = 'var(--teal)';
-      el.title = `Saldo heredado del cierre de ${prevMonth}`;
-      setTimeout(() => { el.style.borderColor = ''; el.title = ''; }, 3000);
+      setTimeout(() => { el.style.borderColor = ''; }, 3000);
     }
-    toast(`💰 Saldo inicial actualizado: ${fmt(cierre)} € (cierre de ${prevMonth})`);
+    toast(`💰 Saldo inicial: ${fmt(cierre)} € (cierre de ${prevMonth})`);
   }
 }
 
