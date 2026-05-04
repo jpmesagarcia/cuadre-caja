@@ -1296,7 +1296,8 @@ function saveState() {
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
       cierresMensuales: state.cierresMensuales,
-      saldosPorMes: state.saldosPorMes
+      saldosPorMes: state.saldosPorMes,
+      libroPorMes: state.libroPorMes
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     // Show save indicator briefly
@@ -1420,6 +1421,7 @@ const state = {
   arqueoHistorico: [],
   cierresMensuales: {},
   saldosPorMes: {},
+  libroPorMes: {},
   defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Laura','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -1469,13 +1471,20 @@ window.onload = () => {
   document.getElementById('monthPicker').addEventListener('change', e => {
     const newMonth = e.target.value;
     if (state.month && state.month !== newMonth) {
+      // Guardar libro y cierre ANTES de cambiar de mes
+      if (!state.libroPorMes) state.libroPorMes = {};
+      state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro));
       saveCierreMes(state.month);
     }
     state.month = newMonth;
-    // Reset libro al cambiar de mes
-    state.libro = {};
-    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
-    state.libro.custom = [];
+    // Restaurar libro del nuevo mes si existe, si no resetear
+    if (state.libroPorMes?.[newMonth]) {
+      state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
+    } else {
+      state.libro = {};
+      LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+      state.libro.custom = [];
+    }
     restoreLibro();
     // Restore saldo of this month if saved
     const savedSaldo = state.saldosPorMes?.[newMonth];
@@ -2853,28 +2862,34 @@ function renderCierreAnterior() {
   if (!el) return;
   if (!state.month) { el.textContent = '—'; return; }
   const prevMonth = getPrevMonth(state.month);
-  // Try to calculate from loaded data
-  const prevDays = Object.keys(state.farmatic||{}).filter(ds => ds.startsWith(prevMonth));
   let cierre = null;
-  if (prevDays.length > 0) {
-    const saldo0 = parseFloat(document.getElementById('saldoInicial')?.value)||0;
-    // We need to calc with prev month's own saldo
-    const prevSaldo = state.saldosPorMes?.[prevMonth] || 0;
-    let acum = prevSaldo;
-    prevDays.sort().forEach(ds => {
-      const ef = getDayEfectivo(ds);
-      const gastos = state.days[ds]?.gastos||0;
-      const cajero = state.cajero?.[ds]||0;
-      acum = Math.round((acum + ef - cajero - gastos)*100)/100;
-    });
-    // Apply libro — but libro resets each month so prev month libro is 0 unless saved
-    cierre = acum;
-    // Save it
-    if (!state.cierresMensuales) state.cierresMensuales = {};
-    state.cierresMensuales[prevMonth] = cierre;
-  } else if (state.cierresMensuales?.[prevMonth] !== undefined) {
+
+  // Preferir el cierre guardado (ya incluye el libro del mes anterior)
+  if (state.cierresMensuales?.[prevMonth] !== undefined) {
     cierre = state.cierresMensuales[prevMonth];
+  } else {
+    // Si tenemos datos del mes anterior cargados, calcularlo ahora
+    const prevDays = Object.keys(state.farmatic||{}).filter(ds => ds.startsWith(prevMonth));
+    if (prevDays.length > 0) {
+      const prevSaldo = state.saldosPorMes?.[prevMonth] || 0;
+      let acum = prevSaldo;
+      prevDays.sort().forEach(ds => {
+        const ef = getDayEfectivo(ds);
+        const gastos = state.days[ds]?.gastos||0;
+        const cajero = state.cajero?.[ds]||0;
+        acum = Math.round((acum + ef - cajero - gastos)*100)/100;
+      });
+      // Nota: si el mes anterior está cargado, el libro actual es el de ese mes
+      // Solo aplicar libro si el mes cargado ES el mes anterior
+      if (state.month && Object.keys(state.farmatic||{}).some(ds => ds.startsWith(prevMonth))) {
+        acum = Math.round((acum + getLibroTotals().net)*100)/100;
+      }
+      cierre = acum;
+      if (!state.cierresMensuales) state.cierresMensuales = {};
+      state.cierresMensuales[prevMonth] = cierre;
+    }
   }
+
   el.textContent = cierre !== null ? fmt(cierre) + ' €' : '—';
   el.style.color = cierre !== null ? 'var(--teal)' : 'var(--muted)';
 }
