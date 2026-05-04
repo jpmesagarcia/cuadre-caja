@@ -1291,7 +1291,7 @@ function saveState() {
       caixaRawRows: state.caixaRawRows,
       days:     state.days,
       month:    state.month,
-      saldoInicial: document.getElementById('saldoInicial')?.value || '0',
+      // saldoInicial guardado en saldosPorMes[month], no globalmente
       libro:    state.libro,
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
@@ -1320,9 +1320,10 @@ function loadState() {
     state.month       = saved.month       || null;
     state.arqueo          = saved.arqueo          || null;
     state.arqueoHistorico = saved.arqueoHistorico || [];
-    if (saved.saldoInicial) {
+    // Restaurar saldo del mes actual desde saldosPorMes
+    if (state.month && state.saldosPorMes?.[state.month] !== undefined) {
       const el = document.getElementById('saldoInicial');
-      if (el) el.value = saved.saldoInicial;
+      if (el) el.value = state.saldosPorMes[state.month];
     }
     return Object.keys(state.farmatic).length > 0;
   } catch(e) { console.warn('No se pudo restaurar:', e); return false; }
@@ -1438,7 +1439,7 @@ window.onload = () => {
     if (state.month) document.getElementById('monthPicker').value = state.month;
     // Restore saldo inicial (already done in loadState but DOM may not have been ready)
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-    if (saved.saldoInicial) document.getElementById('saldoInicial').value = saved.saldoInicial;
+    // saldo restored above from saldosPorMes
 
     // Restore upload badges
     const nF = Object.keys(state.farmatic).length;
@@ -1489,7 +1490,7 @@ window.onload = () => {
     // Restore saldo of this month if saved
     const savedSaldo = state.saldosPorMes?.[newMonth];
     const el = document.getElementById('saldoInicial');
-    if (el) el.value = savedSaldo !== undefined ? savedSaldo : 0;
+    if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
     saveState();
     rebuildDays();
     recalcAll();
@@ -2842,9 +2843,10 @@ function renderArqueoHistorico() {
 
 function saveSaldoMes() {
   if (!state.month) return;
-  const v = parseFloat(document.getElementById('saldoInicial').value)||0;
+  const raw = document.getElementById('saldoInicial').value;
+  const v = parseFloat(raw);
   if (!state.saldosPorMes) state.saldosPorMes = {};
-  state.saldosPorMes[state.month] = v;
+  if (!isNaN(v)) state.saldosPorMes[state.month] = v;
 }
 
 function restoreSaldoMes(month) {
