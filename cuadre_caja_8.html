@@ -1033,7 +1033,7 @@
       </div>
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
         Movimientos mensuales de efectivo. Goya, Téllez y Oviedo pueden ser positivos o negativos.<br>
-        Mónica &amp; Cris, Lucía y Extra Lucía son siempre gastos (negativos).
+        Mónica &amp; Cris, Lucía, Extra Lucía y Festivos son siempre gastos (negativos).
       </p>
 
       <div class="libro-grid">
@@ -1099,6 +1099,15 @@
             <span class="libro-tag-gasto">− Gasto</span>
           </div>
           <input class="libro-input" type="number" id="libroExtraLucia" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+        </div>
+
+        <!-- FESTIVOS — siempre gasto -->
+        <div class="libro-card libro-card-gasto">
+          <div class="libro-card-header">
+            <span class="libro-concept">Festivos</span>
+            <span class="libro-tag-gasto">− Gasto</span>
+          </div>
+          <input class="libro-input" type="number" id="libroFestivos" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
         </div>
 
       </div>
@@ -1989,9 +1998,10 @@ const LIBRO_FIXED = [
   {key:'MonicaCris', label:'Mónica & Cris',    alwaysNeg:true},
   {key:'Lucia',      label:'Lucía',            alwaysNeg:true},
   {key:'ExtraLucia', label:'Extra Lucía ≥100k',alwaysNeg:true},
+  {key:'Festivos',   label:'Festivos',           alwaysNeg:true},
 ];
 const LIBRO_IDS = {Goya:'libroGoya',Tellez:'libroTellez',Oviedo:'libroOviedo',
-  MonicaCris:'libroMonicaCris',Lucia:'libroLucia',ExtraLucia:'libroExtraLucia'};
+  MonicaCris:'libroMonicaCris',Lucia:'libroLucia',ExtraLucia:'libroExtraLucia',Festivos:'libroFestivos'};
 
 function setSign(key, sign) {
   const lb = getLibroState();
