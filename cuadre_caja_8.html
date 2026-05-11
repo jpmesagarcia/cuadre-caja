@@ -1329,6 +1329,7 @@ function loadState() {
     state.month       = saved.month       || null;
     state.arqueo          = saved.arqueo          || null;
     state.arqueoHistorico = saved.arqueoHistorico || [];
+    state.saldosPorMes    = saved.saldosPorMes    || {};
     // Restaurar saldo del mes actual desde saldosPorMes
     if (state.month && state.saldosPorMes?.[state.month] !== undefined) {
       const el = document.getElementById('saldoInicial');
