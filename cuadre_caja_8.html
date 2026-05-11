@@ -678,6 +678,8 @@
   body.dark .arqueo-input { background: var(--surface2); }
   body.dark .arqueo-diff-badge.err { background: #2a1515; }
 
+
+  
   .caixa-badge { font-size:.72rem; font-family:'DM Mono',monospace; color:var(--green); background:var(--green-lt); padding:2px 7px; border-radius:4px; }
 
   /* ── Lucía tickets ── */
@@ -1304,9 +1306,7 @@ function saveState() {
       libro:    state.libro,
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
-      cierresMensuales: state.cierresMensuales,
-      saldosPorMes: state.saldosPorMes,
-      libroPorMes: state.libroPorMes
+      saldosPorMes: state.saldosPorMes
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     // Show save indicator briefly
@@ -1429,9 +1429,7 @@ const state = {
   selectedDay: null,
   arqueo: null,
   arqueoHistorico: [],
-  cierresMensuales: {},
   saldosPorMes: {},
-  libroPorMes: {},
   defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Laura','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -1481,20 +1479,13 @@ window.onload = () => {
   document.getElementById('monthPicker').addEventListener('change', e => {
     const newMonth = e.target.value;
     if (state.month && state.month !== newMonth) {
-      // Guardar libro y cierre ANTES de cambiar de mes
-      if (!state.libroPorMes) state.libroPorMes = {};
-      state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro));
-      saveCierreMes(state.month);
+      saveSaldoMes();
     }
     state.month = newMonth;
-    // Restaurar libro del nuevo mes si existe, si no resetear
-    if (state.libroPorMes?.[newMonth]) {
-      state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
-    } else {
-      state.libro = {};
-      LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
-      state.libro.custom = [];
-    }
+    // Reset libro al cambiar de mes
+    state.libro = {};
+    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+    state.libro.custom = [];
     restoreLibro();
     // Restore saldo of this month if saved
     const savedSaldo = state.saldosPorMes?.[newMonth];
@@ -2906,6 +2897,7 @@ function renderCierreAnterior() {
   el.style.color = cierre !== null ? 'var(--teal)' : 'var(--muted)';
 }
 
+
 // ─── Cierres mensuales ────────────────────────────────────────────────────
 function calcCierreMes(month) {
   // Calcula el efectivo acumulado final del mes (última fila de Cajas)
@@ -3175,7 +3167,6 @@ function getLibroGasto() {
 }
 
 function renderCajas() {
-  renderCierreAnterior();
   const tb = document.getElementById('tCajas');
   const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
   let html = `<thead><tr>
