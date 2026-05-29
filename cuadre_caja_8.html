@@ -1397,6 +1397,23 @@
 
       </div>
     </div>
+
+    <!-- TAB: Seguimiento empleadas -->
+    <div class="tab-pane" id="tab-seguimiento">
+      <div class="section-head">
+        <h2>Seguimiento de apuntes</h2>
+        <span class="chip" id="seguimientoChip">—</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:16px">
+        Compara lo que cada empleada apuntó en el formulario con el efectivo final registrado en la tarjeta del día.
+        Solo muestra días con diferencia.
+      </p>
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn" onclick="renderSeguimiento()">🔄 Actualizar</button>
+        <button class="btn-ghost" onclick="exportSeguimiento()">⬇ Exportar Excel</button>
+      </div>
+      <div id="seguimientoContent"></div>
+    </div>
   </section>
 
 <!-- Clear Menu Modal -->
