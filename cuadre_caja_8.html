@@ -680,6 +680,33 @@
 
 
   
+
+  /* ── Seguimiento ── */
+  .seg-table { width:100%; border-collapse:collapse; font-size:.82rem; margin-bottom:24px; }
+  .seg-table thead th {
+    background:var(--teal); color:#fff; padding:9px 14px;
+    text-align:left; font-weight:500; font-size:.72rem; letter-spacing:.06em;
+    position:sticky; top:0;
+  }
+  .seg-table thead th:last-child { text-align:right; }
+  .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
+  .seg-table tbody tr:hover { background:var(--teal-lt); }
+  .seg-table td { padding:8px 14px; vertical-align:middle; }
+  .seg-table td.mono { font-family:'DM Mono',monospace; }
+  .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
+  .seg-diff-pos { color:var(--teal); }
+  .seg-diff-neg { color:var(--err); }
+  .seg-emp-header {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:10px 16px; margin-bottom:6px;
+    display:flex; align-items:center; justify-content:space-between;
+    cursor:pointer; user-select:none;
+  }
+  .seg-emp-header:hover { background:var(--teal-lt); }
+  .seg-emp-name { font-weight:600; font-size:.88rem; }
+  .seg-emp-summary { font-size:.75rem; color:var(--muted); font-family:'DM Mono',monospace; }
+  .seg-emp-body { margin-bottom:16px; border:1px solid var(--border); border-radius:0 0 8px 8px; overflow:hidden; }
+
   .caixa-badge { font-size:.72rem; font-family:'DM Mono',monospace; color:var(--green); background:var(--green-lt); padding:2px 7px; border-radius:4px; }
 
   /* ── Lucía tickets ── */
@@ -972,6 +999,7 @@
       <button class="tab-btn" onclick="showTab('libro')">📒 Libro</button>
       <button class="tab-btn" onclick="showTab('stats')">📈 Estadísticas</button>
       <button class="tab-btn" onclick="showTab('arqueo')">🏦 Arqueo</button>
+      <button class="tab-btn" onclick="showTab('seguimiento'); renderSeguimiento()">📋 Seguimiento</button>
     </div>
 
     <!-- TAB: Efectivo -->
@@ -1426,7 +1454,8 @@ function saveState() {
       libro:    state.libro,
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
-      saldosPorMes: state.saldosPorMes
+      saldosPorMes: state.saldosPorMes,
+      formsData: state.formsData
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     // Show save indicator briefly
@@ -1450,6 +1479,7 @@ function loadState() {
     state.arqueo          = saved.arqueo          || null;
     state.arqueoHistorico = saved.arqueoHistorico || [];
     state.saldosPorMes    = saved.saldosPorMes    || {};
+  state.formsData       = saved.formsData       || {};
     // Restaurar saldo del mes actual desde saldosPorMes
     if (state.month && state.saldosPorMes?.[state.month] !== undefined) {
       const el = document.getElementById('saldoInicial');
@@ -1551,6 +1581,7 @@ const state = {
   arqueo: null,
   arqueoHistorico: [],
   saldosPorMes: {},
+  formsData: {},
   defaultEmployees: ['Raquel','Cristina','Mónica','Elena','Laura','Ana','Nerea','Alicia','Lucía'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -1829,6 +1860,12 @@ function loadForms(evt) {
           glovo:0, promo:0, gastos:0, luciaTickets:[], notas:''
         };
       }
+
+      // Guardar siempre lo que viene del Forms para comparar después
+      if (!state.formsData[ds]) state.formsData[ds] = {};
+      Object.entries(empData).forEach(([nombre, vals]) => {
+        state.formsData[ds][nombre] = Math.round(vals.efectivo*100)/100;
+      });
 
       // Si el día ya tiene efectivo introducido a mano, no tocarlo
       const yaHayDatos = state.days[ds].employees.some(e => (e.efectivo||0) > 0);
@@ -3080,6 +3117,130 @@ function suggestSaldoInicial(newMonth) {
     }
     toast(`💰 Saldo inicial: ${fmt(cierre)} € (cierre de ${prevMonth})`);
   }
+}
+
+
+// ─── Seguimiento de apuntes ───────────────────────────────────────────────
+// state.formsData[ds][empName] = importe que apuntó en el Forms
+// Para comparar con lo que está en state.days[ds].employees
+
+function renderSeguimiento() {
+  const container = document.getElementById('seguimientoContent');
+  const chip = document.getElementById('seguimientoChip');
+  if (!container) return;
+
+  // Recopilar diferencias por empleada
+  const byEmp = {}; // empName -> [{ds, forms, final, diff}]
+
+  state.daysInMonth.forEach(ds => {
+    const d = state.days[ds];
+    if (!d?.employees) return;
+    const formsDay = state.formsData?.[ds] || {};
+
+    d.employees.forEach(emp => {
+      const isLucia = emp.name.toLowerCase().includes('luc');
+      const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const formsEf = formsDay[emp.name] || 0;
+
+      // Solo mostrar si hay diferencia
+      if (Math.abs(finalEf - formsEf) < 0.01) return;
+      // Solo si alguno de los dos tiene datos
+      if (finalEf === 0 && formsEf === 0) return;
+
+      if (!byEmp[emp.name]) byEmp[emp.name] = [];
+      byEmp[emp.name].push({
+        ds,
+        forms: formsEf,
+        final: finalEf,
+        diff: Math.round((finalEf - formsEf)*100)/100
+      });
+    });
+  });
+
+  const empNames = Object.keys(byEmp).sort();
+  const totalDias = empNames.reduce((s,n) => s + byEmp[n].length, 0);
+
+  chip.textContent = totalDias > 0
+    ? `${totalDias} diferencia${totalDias>1?'s':''} en ${empNames.length} empleada${empNames.length>1?'s':''}`
+    : '✅ Todo cuadra';
+
+  if (empNames.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">✅</div><p>No hay diferencias entre el formulario y las tarjetas.</p></div>';
+    return;
+  }
+
+  container.innerHTML = empNames.map(name => {
+    const rows = byEmp[name];
+    const totalDiff = Math.round(rows.reduce((s,r) => s+r.diff, 0)*100)/100;
+    const diffCls = totalDiff >= 0 ? 'seg-diff-pos' : 'seg-diff-neg';
+
+    const tableRows = rows.map(r => {
+      const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(r.ds).getDay()];
+      const diffCls2 = r.diff > 0 ? 'seg-diff-pos' : 'seg-diff-neg';
+      const formsStr = r.forms > 0 ? fmt(r.forms)+' €' : '<span style="color:var(--muted);font-style:italic">No apuntó</span>';
+      return `<tr>
+        <td class="mono">${wd} ${r.ds.slice(5)}</td>
+        <td class="right">${formsStr}</td>
+        <td class="right">${fmt(r.final)} €</td>
+        <td class="right ${diffCls2}">${(r.diff>0?'+':'')+fmt(r.diff)} €</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="seg-emp-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+      <span class="seg-emp-name">👤 ${name}</span>
+      <span class="seg-emp-summary">${rows.length} día${rows.length>1?'s':''} · neto <span class="${diffCls}">${(totalDiff>0?'+':'')+fmt(totalDiff)} €</span></span>
+    </div>
+    <div class="seg-emp-body">
+      <table class="seg-table">
+        <thead><tr>
+          <th>Fecha</th><th style="text-align:right">Forms</th>
+          <th style="text-align:right">Final tarjeta</th>
+          <th style="text-align:right">Diferencia</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+function exportSeguimiento() {
+  const wb = XLSX.utils.book_new();
+  const TEAL = 'FF086C74';
+  const rows = [['Empleada','Fecha','Forms (€)','Final tarjeta (€)','Diferencia (€)']];
+
+  state.daysInMonth.forEach(ds => {
+    const d = state.days[ds];
+    if (!d?.employees) return;
+    const formsDay = state.formsData?.[ds] || {};
+    d.employees.forEach(emp => {
+      const isLucia = emp.name.toLowerCase().includes('luc');
+      const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const formsEf = formsDay[emp.name] || 0;
+      if (Math.abs(finalEf - formsEf) < 0.01) return;
+      if (finalEf === 0 && formsEf === 0) return;
+      const diff = Math.round((finalEf - formsEf)*100)/100;
+      const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(ds).getDay()];
+      rows.push([emp.name, wd+' '+ds.slice(5), formsEf, finalEf, diff]);
+    });
+  });
+
+  if (rows.length <= 1) { toast('No hay diferencias que exportar'); return; }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // Header style
+  for (let c=0; c<5; c++) {
+    const cell = ws[XLSX.utils.encode_cell({r:0,c})];
+    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFFFF'},name:'Arial',sz:10},
+      fill:{patternType:'solid',fgColor:{rgb:TEAL}}, alignment:{horizontal:'center'}};
+  }
+  ws['!cols'] = [{wch:16},{wch:12},{wch:14},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Seguimiento');
+
+  const [y,m] = (state.month||'2026-01').split('-');
+  const mn = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio',
+    'Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(m)];
+  XLSX.writeFile(wb, `Seguimiento_${mn}_${y}.xlsx`, {bookSST:false, cellStyles:true});
+  toast('✅ Excel de seguimiento exportado');
 }
 
 // ─── Atajos de teclado ────────────────────────────────────────────────────
