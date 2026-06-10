@@ -894,6 +894,7 @@
     <div class="brand-text">
       <span class="brand-name">FARMACIA DEL GLOBO</span>
       <span class="brand-sub">——— CARRETAS ———</span>
+      <span style="font-size:.65rem;color:rgba(255,255,255,.45);letter-spacing:.06em;margin-left:8px">v2.0 · 10 jun 2026</span>
       <span class="brand-app">Cuadre de Caja</span>
     </div>
   </div>
@@ -1000,6 +1001,7 @@
       <button class="tab-btn" onclick="showTab('stats')">📈 Estadísticas</button>
       <button class="tab-btn" onclick="showTab('arqueo')">🏦 Arqueo</button>
       <button class="tab-btn" onclick="showTab('seguimiento'); renderSeguimiento()">📋 Seguimiento</button>
+      <button class="tab-btn" onclick="showTab('informes'); renderInformes()">📂 Otros informes</button>
     </div>
 
     <!-- TAB: Efectivo -->
@@ -1067,19 +1069,25 @@
             <div class="lucia-add-row">
               <select id="luciaClient">
                 <option value="">— Cliente —</option>
+                <option>Alex Muñoz</option>
+                <option>Amanda Yonh</option>
                 <option>Ana Argüelles</option>
                 <option>Ana Huerta</option>
                 <option>Ana Taibo</option>
                 <option>Beatriz de Cominges</option>
                 <option>Blanca Huerta</option>
                 <option>Cecilia Pardo</option>
-                <option>D. Alex Muñoz</option>
+                <option>Colegio Laude</option>
                 <option>Enrique Huerta</option>
                 <option>Fabiola Guerrero</option>
+                <option>Fernando Dominguez García</option>
                 <option>Fernando Huerta</option>
                 <option>Francisco Fernandez Daza</option>
                 <option>Gema Huerta</option>
+                <option>Hacienda</option>
+                <option>Ibone Huerta</option>
                 <option>Inés García Paine</option>
+                <option>Laura Pastor</option>
                 <option>Lucía Lovera Guerrero</option>
                 <option>Miguel Asensio</option>
                 <option>Miriam Torrens</option>
@@ -1090,6 +1098,10 @@
               </select>
               <input type="text" id="luciaClientNew" placeholder="Nombre del cliente" style="display:none;min-width:160px">
               <input type="number" id="luciaAmount" placeholder="Importe €" step="0.01" min="0">
+              <select id="luciaPago" style="font-size:.78rem;padding:6px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:'Jost',sans-serif">
+                <option value="efectivo">💵 Efectivo</option>
+                <option value="transferencia">🏦 Transferencia</option>
+              </select>
               <button class="btn-ghost dark" onclick="addLuciaTicket()">+ Añadir ticket</button>
             </div>
             <div class="lucia-ticket-list" id="luciaTicketList">
@@ -1413,6 +1425,32 @@
         <button class="btn-ghost" onclick="exportSeguimiento()">⬇ Exportar Excel</button>
       </div>
       <div id="seguimientoContent"></div>
+    </div>
+
+    <!-- TAB: Otros informes -->
+    <div class="tab-pane" id="tab-informes">
+      <div class="section-head">
+        <h2>Otros informes</h2>
+      </div>
+
+      <!-- GASTOS -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal)">💸 Gastos del mes</h3>
+          <button class="btn-ghost btn-sm" onclick="exportGastos()">⬇ Excel</button>
+        </div>
+        <div id="informesGastos"></div>
+      </div>
+
+      <!-- OTROS INGRESOS BANCO -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal)">🏦 Otros ingresos bancarios</h3>
+          <button class="btn-ghost btn-sm" onclick="exportOtrosIngresos()">⬇ Excel</button>
+        </div>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Movimientos del banco que no son visas TPV ni ingresos en cajero.</p>
+        <div id="informesOtrosIngresos"></div>
+      </div>
     </div>
   </section>
 
@@ -2871,7 +2909,7 @@ function handleLuciaTicketsFile(evt) {
         };
       }
       if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
-      state.days[ds].luciaTickets.push({client, amount});
+      state.days[ds].luciaTickets.push({client, amount, pago});
       count++;
     }
 
@@ -3137,6 +3175,189 @@ function suggestSaldoInicial(newMonth) {
 }
 
 
+
+// ─── Otros informes ───────────────────────────────────────────────────────
+function renderInformes() {
+  renderInformesGastos();
+  renderOtrosIngresos();
+}
+
+function renderInformesGastos() {
+  const el = document.getElementById('informesGastos');
+  if (!el) return;
+
+  // Gastos diarios + gastos del libro
+  const gastosDiarios = [];
+  state.daysInMonth.forEach(ds => {
+    const g = state.days[ds]?.gastos||0;
+    if (g > 0) {
+      const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(ds).getDay()];
+      gastosDiarios.push({ds, label: wd+' '+ds.slice(5), amount: g, tipo: 'Gasto diario'});
+    }
+  });
+
+  // Gastos del libro
+  const lb = getLibroState();
+  const gastosLibro = [];
+  LIBRO_FIXED.forEach(c => {
+    const item = lb[c.key];
+    if (item.sign==='neg' && (item.amount||0) > 0) {
+      gastosLibro.push({label: c.label, amount: item.amount, tipo: 'Libro'});
+    }
+  });
+  (lb.custom||[]).forEach(e => {
+    if (e.sign==='neg' && (e.amount||0) > 0) {
+      gastosLibro.push({label: e.label, amount: e.amount, tipo: 'Libro'});
+    }
+  });
+
+  const totalDiarios = Math.round(gastosDiarios.reduce((s,g)=>s+g.amount,0)*100)/100;
+  const totalLibro   = Math.round(gastosLibro.reduce((s,g)=>s+g.amount,0)*100)/100;
+  const total        = Math.round((totalDiarios+totalLibro)*100)/100;
+
+  if (gastosDiarios.length === 0 && gastosLibro.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px"><p>Sin gastos este mes.</p></div>';
+    return;
+  }
+
+  let html = '<table class="seg-table"><thead><tr><th>Concepto</th><th>Tipo</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+  gastosDiarios.forEach(g => {
+    html += `<tr><td class="mono">${g.label}</td><td style="color:var(--muted);font-size:.75rem">Gasto diario</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
+  });
+  gastosLibro.forEach(g => {
+    html += `<tr><td>${g.label}</td><td style="color:var(--muted);font-size:.75rem">Libro</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
+  });
+  html += `<tr style="background:var(--teal-lt);font-weight:700"><td>TOTAL</td><td></td><td class="right" style="color:var(--err)">−${fmt(total)} €</td></tr>`;
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderOtrosIngresos() {
+  const el = document.getElementById('informesOtrosIngresos');
+  if (!el) return;
+
+  const rows = state.caixaRawRows || [];
+  const [y,m] = (state.month||'2026-01').split('-').map(Number);
+  const otros = [];
+
+  rows.slice(3).forEach(r => {
+    if (!r) return;
+    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
+    const esON     = mov.includes('on ') || /on/.test(mov);
+    const esCajero = mov.includes('ingreso') && mov.includes('cajero');
+    if (esON || esCajero) return; // ya contabilizados
+
+    // Get fecha and importe
+    let fecha=null, importe=null, concepto='';
+    r.forEach(v => {
+      if (!v) return;
+      const ds = toDateStr(v);
+      if (ds && ds > '2000-01-01' && !fecha) fecha = ds;
+      if (typeof v === 'number' && Math.abs(v) > 0 && importe === null) importe = v;
+      if (typeof v === 'string' && v.length > 3) concepto = v;
+    });
+    if (!fecha || importe === null) return;
+    // Filter to current month
+    const [fy,fm] = fecha.split('-').map(Number);
+    if (fy !== y || fm !== m) return;
+    if (importe <= 0) return; // solo ingresos
+
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
+    otros.push({fecha: wd+' '+fecha.slice(5), concepto, importe});
+  });
+
+  if (otros.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px"><p>Sin otros ingresos bancarios este mes.</p></div>';
+    return;
+  }
+
+  const total = Math.round(otros.reduce((s,o)=>s+o.importe,0)*100)/100;
+  let html = '<table class="seg-table"><thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+  otros.forEach(o => {
+    html += `<tr><td class="mono">${o.fecha}</td><td>${o.concepto}</td><td class="right seg-diff-pos">+${fmt(o.importe)} €</td></tr>`;
+  });
+  html += `<tr style="background:var(--teal-lt);font-weight:700"><td>TOTAL</td><td></td><td class="right" style="color:var(--teal)">+${fmt(total)} €</td></tr>`;
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function exportGastos() {
+  const lb = getLibroState();
+  const TEAL = 'FF086C74';
+  const rows = [['Concepto','Tipo','Importe (€)']];
+
+  state.daysInMonth.forEach(ds => {
+    const g = state.days[ds]?.gastos||0;
+    if (g > 0) {
+      const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(ds).getDay()];
+      rows.push([wd+' '+ds.slice(5), 'Gasto diario', -g]);
+    }
+  });
+  LIBRO_FIXED.forEach(c => {
+    const item = lb[c.key];
+    if (item.sign==='neg' && (item.amount||0)>0) rows.push([c.label, 'Libro', -(item.amount)]);
+  });
+  (lb.custom||[]).forEach(e => {
+    if (e.sign==='neg' && (e.amount||0)>0) rows.push([e.label, 'Libro', -(e.amount)]);
+  });
+  rows.push(['TOTAL','', -Math.round(rows.slice(1).reduce((s,r)=>s+Math.abs(r[2]),0)*100)/100]);
+
+  const wb2 = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  for (let c=0;c<3;c++) {
+    const cell = ws[XLSX.utils.encode_cell({r:0,c})];
+    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFFFF'},name:'Arial',sz:10}, fill:{patternType:'solid',fgColor:{rgb:TEAL}}, alignment:{horizontal:'center'}};
+  }
+  ws['!cols'] = [{wch:18},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb2, ws, 'Gastos');
+  const [yy,mm] = (state.month||'2026-01').split('-');
+  const mn = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(mm)];
+  XLSX.writeFile(wb2, `Gastos_${mn}_${yy}.xlsx`, {bookSST:false,cellStyles:true});
+  toast('✅ Excel de gastos exportado');
+}
+
+function exportOtrosIngresos() {
+  const rows = state.caixaRawRows || [];
+  const [y,m] = (state.month||'2026-01').split('-').map(Number);
+  const TEAL = 'FF086C74';
+  const expRows = [['Fecha','Concepto','Importe (€)']];
+
+  rows.slice(3).forEach(r => {
+    if (!r) return;
+    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
+    if (mov.includes('on ') || /on/.test(mov)) return;
+    if (mov.includes('ingreso') && mov.includes('cajero')) return;
+    let fecha=null, importe=null, concepto='';
+    r.forEach(v => {
+      if (!v) return;
+      const ds = toDateStr(v);
+      if (ds && ds>'2000-01-01' && !fecha) fecha=ds;
+      if (typeof v==='number' && Math.abs(v)>0 && importe===null) importe=v;
+      if (typeof v==='string' && v.length>3) concepto=v;
+    });
+    if (!fecha||importe===null||importe<=0) return;
+    const [fy,fm] = fecha.split('-').map(Number);
+    if (fy!==y||fm!==m) return;
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
+    expRows.push([wd+' '+fecha.slice(5), concepto, importe]);
+  });
+
+  if (expRows.length<=1) { toast('Sin otros ingresos que exportar'); return; }
+
+  const wb2 = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(expRows);
+  for (let c=0;c<3;c++) {
+    const cell = ws[XLSX.utils.encode_cell({r:0,c})];
+    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFFFF'},name:'Arial',sz:10}, fill:{patternType:'solid',fgColor:{rgb:TEAL}}, alignment:{horizontal:'center'}};
+  }
+  ws['!cols'] = [{wch:14},{wch:28},{wch:14}];
+  XLSX.utils.book_append_sheet(wb2, ws, 'Otros ingresos');
+  const [yy,mm] = (state.month||'2026-01').split('-');
+  const mn = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(mm)];
+  XLSX.writeFile(wb2, `OtrosIngresos_${mn}_${yy}.xlsx`, {bookSST:false,cellStyles:true});
+  toast('✅ Excel de otros ingresos exportado');
+}
+
 // ─── Seguimiento de apuntes ───────────────────────────────────────────────
 // state.formsData[ds][empName] = importe que apuntó en el Forms
 // Para comparar con lo que está en state.days[ds].employees
@@ -3342,8 +3563,9 @@ function addLuciaTicket() {
   }
 
   if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
-  state.days[ds].luciaTickets.push({client, amount});
+  state.days[ds].luciaTickets.push({client, amount, pago});
   document.getElementById('luciaAmount').value = '';
+  const pagSel = document.getElementById('luciaPago'); if (pagSel) pagSel.value = 'efectivo';
   renderLuciaSection(ds);
   dayChanged();
   saveState();
@@ -3732,13 +3954,18 @@ function exportExcelCore() {
   fmtSheet(wsFarmatic, [13,12,12,12,13,13,12,12,8,12,8,13,12]);
   XLSX.utils.book_append_sheet(wb, wsFarmatic, 'Farmatic');
 
-  // ── 2. LA CAIXA — exportar filas originales del banco ───────────────────
-  const cRows = state.caixaRawRows && state.caixaRawRows.length > 0
+  // ── 2. LA CAIXA — solo ingresos por visas (ON)
+  const allCaixaRows = state.caixaRawRows && state.caixaRawRows.length > 0
     ? state.caixaRawRows.map(r => [...(r||[])])
-    : [['Movimientos de la cuenta','','','',''],
-       ['Importes expresados en euros','','','',''],
-       ['Fecha','Fecha valor','Movimiento','Más datos','Importe']];
-  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows);
+    : [];
+  // Find header rows (first 3) and filter only ON rows
+  const caixaHeaderRows = allCaixaRows.slice(0, 3);
+  const caixaVisaRows = allCaixaRows.slice(3).filter(r => {
+    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
+    return (mov.includes('on ') || /\bon\b/.test(mov));
+  });
+  const cRows = [...caixaHeaderRows, ...caixaVisaRows];
+  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows.length > 3 ? cRows : caixaHeaderRows);
   fmtSheet(wsCaixa, [14,14,20,24,10]);
   XLSX.utils.book_append_sheet(wb, wsCaixa, 'La caixa');
 
@@ -3887,7 +4114,9 @@ function exportExcelCore() {
   const cajasLastAccum = cajasRows.length>5 ? cajasRows[cajasRows.length-1][6] : saldo0;
   const libroAccumFinal = n2(cajasLastAccum + lt.net);
   const libroRowIdx = cajasRows.length;
-  cajasRows.push(['','','Libro', lt.med||'', '', Math.abs(lt.nomina)||'', libroAccumFinal]);
+  // Fila Libro con importe neto explícito
+  const libroNeto = n2(lt.net);
+  cajasRows.push(['','','Libro', '', '', libroNeto!==0?libroNeto:'', libroAccumFinal]);
   const wsC2 = XLSX.utils.aoa_to_sheet(cajasRows);
   // Copy formatting from wsCajas — rebuild with new rows
   // Header
@@ -3917,6 +4146,9 @@ function exportExcelCore() {
   }
   fmtSheet(wsC2, [3,12,20,10,10,8,13]);
   XLSX.utils.book_append_sheet(wb, wsC2, 'Cajas');
+
+  // ── 4b. HOJA LIBRO (después de Cajas)
+  // (moved here, generated below)
 
   // ── 5. HOJAS DIARIAS ─────────────────────────────────────────────────────
   sortedAsc.forEach(ds => {
@@ -4061,6 +4293,7 @@ function exportExcelCore() {
 
     const label = `${dayNum} - ${monthShort}`;
     XLSX.utils.book_append_sheet(wb, wsDay, label);
+    wsDay['!hidden'] = true;
   });
 
   // ── 6. HOJA TICKETS LUCÍA ────────────────────────────────────────────────
