@@ -3549,6 +3549,7 @@ function addLuciaTicket() {
   const newInp = document.getElementById('luciaClientNew');
   let client = sel.value === '__new__' ? newInp.value.trim() : sel.value;
   const amount = parseFloat(document.getElementById('luciaAmount').value)||0;
+  const pago   = document.getElementById('luciaPago')?.value || 'efectivo';
   if (!client || client === '') { alert('Selecciona o escribe el nombre del cliente'); return; }
   if (amount <= 0) { alert('Introduce un importe válido'); return; }
 
