@@ -894,7 +894,7 @@
     <div class="brand-text">
       <span class="brand-name">FARMACIA DEL GLOBO</span>
       <span class="brand-sub">——— CARRETAS ———</span>
-      <span style="font-size:.65rem;color:rgba(255,255,255,.45);letter-spacing:.06em;margin-left:8px">v2.0.1 · 10 jun 2026</span>
+      <span style="font-size:.65rem;color:rgba(255,255,255,.45);letter-spacing:.06em;margin-left:8px">v2.0.2 · 10 jun 2026</span>
       <span class="brand-app">Cuadre de Caja</span>
     </div>
   </div>
@@ -1510,6 +1510,7 @@ function saveState() {
       arqueo:   state.arqueo,
       arqueoHistorico: state.arqueoHistorico,
       saldosPorMes: state.saldosPorMes,
+      libroPorMes: state.libroPorMes,
       formsData: state.formsData
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
@@ -1534,6 +1535,7 @@ function loadState() {
     state.arqueo          = saved.arqueo          || null;
     state.arqueoHistorico = saved.arqueoHistorico || [];
     state.saldosPorMes    = saved.saldosPorMes    || {};
+  state.libroPorMes     = saved.libroPorMes     || {};
   state.formsData       = saved.formsData       || {};
     // Restaurar saldo del mes actual desde saldosPorMes
     if (state.month && state.saldosPorMes?.[state.month] !== undefined) {
@@ -1687,12 +1689,20 @@ window.onload = () => {
     const newMonth = e.target.value;
     if (state.month && state.month !== newMonth) {
       saveSaldoMes();
+      // Guardar libro del mes actual ANTES de resetearlo
+      if (!state.libroPorMes) state.libroPorMes = {};
+      state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
+      saveState(); // guardar con el libro aún intacto
     }
     state.month = newMonth;
-    // Reset libro al cambiar de mes
-    state.libro = {};
-    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
-    state.libro.custom = [];
+    // Restaurar libro del nuevo mes si existe, si no resetear
+    if (state.libroPorMes?.[newMonth]) {
+      state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
+    } else {
+      state.libro = {};
+      LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+      state.libro.custom = [];
+    }
     restoreLibro();
     // Restore saldo of this month if saved
     const savedSaldo = state.saldosPorMes?.[newMonth];
