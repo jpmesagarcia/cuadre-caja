@@ -82,6 +82,34 @@
     font-family: 'DM Mono', monospace; display: none;
     background: rgba(255,255,255,.15); padding: 3px 10px; border-radius: 20px;
   }
+  #saveIndicator.error { background: var(--err); color: #fff; font-weight: 500; }
+  body.dark #saveIndicator.error { color: #1a2e2e; }
+
+  /* Avisos de guardado y de copias de seguridad: bajo la cabecera, visibles al hacer scroll */
+  #avisos { position: sticky; top: var(--header-h, 65px); z-index: 99; }
+  .aviso {
+    display: none; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 10px 32px; font-size: .82rem; line-height: 1.45;
+    border-bottom: 1px solid transparent;
+  }
+  .aviso.show { display: flex; }
+  .aviso .aviso-txt { flex: 1 1 280px; }
+  .aviso button {
+    font-family: 'Jost', sans-serif; font-size: .75rem; padding: 5px 12px; border-radius: 5px;
+    cursor: pointer; background: transparent; color: inherit; border: 1px solid currentColor;
+  }
+  .aviso button:hover { opacity: .8; }
+  .aviso.error { background: #c0392b; color: #fff; border-bottom-color: #8e2a20; }
+  .aviso.error button.principal { background: #fff; color: #8e2a20; border-color: #fff; font-weight: 500; }
+  .aviso.warn { background: #fff3d6; color: #6b4500; border-bottom-color: #e8c36a; }
+  .aviso.warn button.principal { background: #6b4500; color: #fff; border-color: #6b4500; font-weight: 500; }
+  body.dark .aviso.error { background: #7a2020; border-bottom-color: #ff6b6b; }
+  body.dark .aviso.error button.principal { color: #7a2020; }
+  body.dark .aviso.warn { background: #3a2e0a; color: #ffdd88; border-bottom-color: #8a6d1a; }
+  body.dark .aviso.warn button.principal { background: #ffdd88; color: #3a2e0a; border-color: #ffdd88; }
+  .copia-estado { font-size: .7rem; color: var(--muted); line-height: 1.4; text-align: center; }
+  .copia-estado.antigua { color: #a15c00; font-weight: 500; }
+  body.dark .copia-estado.antigua { color: var(--warn); }
   .month-selector { display: flex; align-items: center; gap: 8px; }
   .month-selector label { font-size: .73rem; color: rgba(255,255,255,.65); letter-spacing: .04em; }
   .month-selector input[type=month] {
@@ -774,6 +802,7 @@
     .header-right { gap: 6px; }
     .header-right .btn-ghost { font-size: .7rem; padding: 4px 8px; }
     .dark-toggle { padding: 4px 8px; font-size: .75rem; }
+    .aviso { padding: 10px 12px; }
 
     aside {
       flex-direction: column; gap: 10px; padding: 12px;
@@ -909,6 +938,13 @@
   </div>
 </header>
 
+<!-- Avisos de guardado y de copias de seguridad -->
+<div id="avisos">
+  <div class="aviso error" id="avisoGuardado" role="alert"></div>
+  <div class="aviso error" id="avisoCorrupto" role="alert"></div>
+  <div class="aviso warn" id="avisoCopia" role="status"></div>
+</div>
+
 <main>
   <!-- Sidebar -->
   <aside>
@@ -981,7 +1017,15 @@
       <button class="btn" style="width:100%" onclick="exportExcel()" id="btnExport" disabled>
         ⬇ Exportar Excel
       </button>
-      <button class="btn-ghost" style="width:100%;font-size:.75rem" onclick="exportBackupEfectivo()" title="Genera un Excel compatible con el botón de carga de efectivo">
+      <div class="copia-estado" id="copiaEstado"></div>
+      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupCompleto()" title="Descarga un fichero JSON con todos los datos de la app: Farmatic, banco, efectivo, gastos, libro, saldos, arqueo y tickets de Lucía">
+        💾 Copia completa (JSON)
+      </button>
+      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="document.getElementById('restoreFile').click()" title="Sustituye los datos actuales por los de una copia completa descargada antes">
+        ♻️ Restaurar copia completa
+      </button>
+      <input type="file" id="restoreFile" accept=".json,application/json" style="display:none" onchange="restoreBackupCompleto(event)">
+      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupEfectivo()" title="Genera un Excel compatible con el botón de carga de efectivo">
         💾 Backup efectivo empleadas
       </button>
       <button class="btn-ghost" style="width:100%;font-size:.75rem" onclick="importLuciaTickets()" title="Carga tickets de Lucía desde el Excel exportado por la app">
@@ -1495,34 +1539,137 @@
 <script>
 // ─── Persistencia ─────────────────────────────────────────────────────────
 const STORAGE_KEY = 'cuadre_caja_v3';
+const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
+const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
+const BACKUP_SCHEMA   = 1;                       // versión de esquema del fichero de copia completa
+const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
+let guardadoFallido = false;        // el último guardado falló
+let restaurandoCopia = false;       // restauración en curso: ningún guardado debe pisarla
+let textoCorrupto = null;           // texto original de unos datos guardados que no se pudieron leer
+let claveCorrupto = null;           // clave donde se ha apartado ese texto
+let textoCorruptoSinCopia = false;  // no se pudo apartar en otra clave: no sobrescribir hasta descargarlo
+let ultimaCopiaMem = null;          // fecha de la última copia descargada en esta sesión
+let avisoCopiaCerrado = false;      // «Ahora no» en el aviso de copia antigua (solo esta sesión)
+
+// Lo que se guarda en localStorage. Es también el contenido (data) de la copia completa,
+// así que lo guardado y lo copiado no pueden divergir.
+function buildPersistedState() {
+  return {
+    farmatic: state.farmatic,
+    caixa:    state.caixa,
+    cajero:   state.cajero,
+    caixaRawRows: state.caixaRawRows,
+    days:     state.days,
+    month:    state.month,
+    // saldoInicial guardado en saldosPorMes[month], no globalmente
+    libro:    state.libro,
+    arqueo:   state.arqueo,
+    arqueoHistorico: state.arqueoHistorico,
+    saldosPorMes: state.saldosPorMes,
+    libroPorMes: state.libroPorMes,
+    formsData: state.formsData
+  };
+}
+
+// Devuelve true si ha guardado. Si no, lo avisa de forma visible y persistente (E-36).
 function saveState() {
+  if (restaurandoCopia) return false;
+  if (textoCorruptoSinCopia) {
+    marcarGuardadoFallido('Los datos que había guardados estaban dañados y no se ha podido apartar su texto, así que no se guarda para no sobrescribirlos. Descarga el texto dañado y el guardado se reanudará.');
+    return false;
+  }
   try {
-    const toSave = {
-      farmatic: state.farmatic,
-      caixa:    state.caixa,
-      cajero:   state.cajero,
-      caixaRawRows: state.caixaRawRows,
-      days:     state.days,
-      month:    state.month,
-      // saldoInicial guardado en saldosPorMes[month], no globalmente
-      libro:    state.libro,
-      arqueo:   state.arqueo,
-      arqueoHistorico: state.arqueoHistorico,
-      saldosPorMes: state.saldosPorMes,
-      libroPorMes: state.libroPorMes,
-      formsData: state.formsData
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-    // Show save indicator briefly
-    const ind = document.getElementById('saveIndicator');
-    if (ind) { ind.style.display='inline'; clearTimeout(ind._t); ind._t = setTimeout(()=>ind.style.display='none', 2000); }
-  } catch(e) { console.warn('No se pudo guardar:', e); }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildPersistedState()));
+  } catch(e) {
+    console.warn('No se pudo guardar:', e);
+    marcarGuardadoFallido(motivoFalloGuardado(e));
+    return false;
+  }
+  marcarGuardadoOk();
+  actualizarAvisoCopia();
+  return true;
+}
+
+function motivoFalloGuardado(e) {
+  const txt = ((e && e.name) || '') + ' ' + ((e && e.message) || '');
+  if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014 || /quota/i.test(txt)))
+    return 'El almacenamiento del navegador está lleno.';
+  if (e && (e.name === 'SecurityError' || /denied|blocked|insecure/i.test(txt)))
+    return 'El navegador está bloqueando el almacenamiento (modo privado o cookies bloqueadas).';
+  return 'El navegador no ha dejado guardar' + (e && e.message ? ' (' + e.message + ')' : '') + '.';
+}
+
+function marcarGuardadoFallido(motivo) {
+  guardadoFallido = true;
+  const ind = document.getElementById('saveIndicator');
+  if (ind) {
+    clearTimeout(ind._t);
+    ind.textContent = '⚠️ sin guardar';
+    ind.classList.add('error');
+    ind.style.display = 'inline';
+  }
+  mostrarAviso('avisoGuardado',
+    '⚠️ NO SE ESTÁ GUARDANDO. ' + motivo + ' Si cierras o recargas la página perderás lo que hayas hecho desde el último guardado correcto. Descarga una copia completa ahora.',
+    [{ texto: '⬇ Descargar copia completa', principal: true, fn: exportBackupCompleto },
+     { texto: 'Reintentar guardado', fn: () => { saveState(); } }]);
+}
+
+function marcarGuardadoOk() {
+  const ind = document.getElementById('saveIndicator');
+  if (ind) {
+    ind.classList.remove('error');
+    ind.textContent = '💾 guardado';
+    ind.style.display = 'inline';
+    clearTimeout(ind._t);
+    ind._t = setTimeout(() => ind.style.display = 'none', 2000);
+  }
+  if (guardadoFallido) {
+    guardadoFallido = false;
+    ocultarAviso('avisoGuardado');
+    toast('✅ Guardado de nuevo');
+  }
+}
+
+// ─── Avisos bajo la cabecera ──────────────────────────────────────────────
+function mostrarAviso(id, texto, botones) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.classList.contains('show') && el.dataset.txt === texto) return; // ya está igual
+  el.textContent = '';
+  el.dataset.txt = texto;
+  const t = document.createElement('span');
+  t.className = 'aviso-txt';
+  t.textContent = texto;
+  el.appendChild(t);
+  (botones || []).forEach(b => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = b.texto;
+    if (b.principal) btn.className = 'principal';
+    btn.addEventListener('click', b.fn);
+    el.appendChild(btn);
+  });
+  el.classList.add('show');
+}
+
+function ocultarAviso(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('show');
+  el.textContent = '';
+  delete el.dataset.txt;
+}
+
+function ajustarAlturaCabecera() {
+  const h = document.querySelector('header');
+  if (h) document.documentElement.style.setProperty('--header-h', h.offsetHeight + 'px');
 }
 
 function loadState() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const saved = JSON.parse(raw);
     state.farmatic    = saved.farmatic    || {};
@@ -1543,7 +1690,236 @@ function loadState() {
       if (el) el.value = state.saldosPorMes[state.month];
     }
     return Object.keys(state.farmatic).length > 0;
-  } catch(e) { console.warn('No se pudo restaurar:', e); return false; }
+  } catch(e) {
+    console.warn('No se pudo restaurar:', e);
+    // Datos guardados ilegibles: apartar el texto original ANTES de que un guardado lo sobrescriba
+    if (raw) preservarDatosCorruptos(raw, e);
+    return false;
+  }
+}
+
+
+// ─── Datos guardados dañados ──────────────────────────────────────────────
+// Si lo guardado no se puede leer, la app arranca vacía y el siguiente guardado lo machacaría.
+// Antes de que eso ocurra, el texto original se aparta en otra clave y se avisa.
+function preservarDatosCorruptos(raw, err) {
+  textoCorrupto = raw;
+  try {
+    let clave = CORRUPT_KEY;
+    const previo = localStorage.getItem(clave);
+    if (previo !== null && previo !== raw) clave = CORRUPT_KEY + '_' + marcaTiempo(new Date()); // no pisar un fallo anterior
+    if (previo !== raw) localStorage.setItem(clave, raw);
+    claveCorrupto = clave;
+  } catch(e) {
+    console.warn('No se pudo apartar el texto dañado:', e);
+    textoCorruptoSinCopia = true;
+  }
+  mostrarAvisoCorrupto();
+}
+
+function mostrarAvisoCorrupto() {
+  const base = '⚠️ Los datos guardados en este navegador estaban dañados y no se han podido leer; la app ha arrancado vacía. ';
+  if (textoCorruptoSinCopia) {
+    mostrarAviso('avisoCorrupto',
+      base + 'No ha sido posible apartar el texto original (almacenamiento lleno): no se guardará nada hasta que lo descargues.',
+      [{ texto: '⬇ Descargar texto dañado', principal: true, fn: descargarTextoCorrupto }]);
+  } else {
+    mostrarAviso('avisoCorrupto',
+      base + 'El texto original está a salvo en «' + claveCorrupto + '». Si tienes una copia completa, restáurala.',
+      [{ texto: '⬇ Descargar texto dañado', principal: true, fn: descargarTextoCorrupto },
+       { texto: '♻️ Restaurar copia completa', fn: () => document.getElementById('restoreFile').click() },
+       { texto: 'Entendido', fn: () => ocultarAviso('avisoCorrupto') }]);
+  }
+}
+
+function descargarTextoCorrupto() {
+  if (textoCorrupto === null) return;
+  descargarTexto(textoCorrupto, 'Datos_danados_Cuadre_Caja_' + marcaTiempo(new Date()) + '.txt', 'text/plain');
+  if (textoCorruptoSinCopia) {
+    textoCorruptoSinCopia = false;   // ya está fuera del navegador: se puede volver a guardar
+    mostrarAvisoCorrupto();
+    toast('Texto dañado descargado: se reanuda el guardado');
+  }
+}
+
+// ─── Copia completa (E-06) ────────────────────────────────────────────────
+function p2(n) { return String(n).padStart(2, '0'); }
+function marcaTiempo(d) {   // 2026-11-10_1532, hora local
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes());
+}
+function fechaHoraCorta(d) {
+  return d.toLocaleDateString('es-ES') + ' ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+function haceCuanto(ms) {
+  const d = Math.floor(ms / 86400000);
+  return d < 1 ? 'hoy' : d === 1 ? 'hace 1 día' : 'hace ' + d + ' días';
+}
+
+function descargarTexto(texto, nombre, mime) {
+  const blob = new Blob([texto], { type: (mime || 'text/plain') + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function resumenCopia(d) {
+  const dias = Object.values(d.days || {});
+  return {
+    mes: d.month || null,
+    diasFarmatic: Object.keys(d.farmatic || {}).length,
+    entradasBanco: Object.keys(d.caixa || {}).length,
+    diasConEfectivo: dias.filter(x => x && (x.employees || []).some(e => (e.efectivo || 0) > 0)).length,
+    ticketsLucia: dias.reduce((s, x) => s + ((x && x.luciaTickets) || []).length, 0),
+    mesesConLibro: Object.keys(d.libroPorMes || {}).length,
+    mesesConSaldo: Object.keys(d.saldosPorMes || {}).length,
+    arqueosGuardados: (d.arqueoHistorico || []).length
+  };
+}
+
+function hayDatosQueCopiar() {
+  const r = resumenCopia(buildPersistedState());
+  return r.diasFarmatic > 0 || r.entradasBanco > 0 || r.diasConEfectivo > 0 ||
+         r.ticketsLucia > 0 || r.mesesConLibro > 0 || r.arqueosGuardados > 0;
+}
+
+function textoCopiaCompleta(ahora) {
+  const data = buildPersistedState();
+  return JSON.stringify({ app: 'cuadre-caja', schemaVersion: BACKUP_SCHEMA, exportedAt: ahora.toISOString(), resumen: resumenCopia(data), data });
+}
+
+function exportBackupCompleto() {
+  if (!hayDatosQueCopiar()) { toast('⚠️ No hay datos que copiar todavía'); return false; }
+  const ahora = new Date();
+  let texto;
+  try { texto = textoCopiaCompleta(ahora); }
+  catch(e) { alert('No se ha podido generar la copia: ' + e.message); return false; }
+  descargarTexto(texto, 'Copia_completa_Cuadre_Caja_' + marcaTiempo(ahora) + '.json', 'application/json');
+  ultimaCopiaMem = ahora.toISOString();
+  try { localStorage.setItem(BACKUP_KEY, ultimaCopiaMem); } catch(e) { /* si el almacenamiento falla ya hay aviso rojo */ }
+  actualizarAvisoCopia();
+  toast('✅ Copia completa descargada');
+  return true;
+}
+
+// Devuelve el motivo por el que el objeto NO es una copia restaurable, o null si lo es.
+function validarCopiaCompleta(o) {
+  const esObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!esObj(o) || o.app !== 'cuadre-caja') return 'El fichero no es una copia completa de esta aplicación.';
+  if (!Number.isInteger(o.schemaVersion) || o.schemaVersion < 1) return 'A la copia le falta la versión de esquema.';
+  if (o.schemaVersion > BACKUP_SCHEMA)
+    return 'La copia es de una versión más nueva de la app (esquema ' + o.schemaVersion + '; esta app entiende hasta el ' + BACKUP_SCHEMA + '). Actualiza la app antes de restaurarla.';
+  const d = o.data;
+  if (!esObj(d)) return 'La copia no contiene datos.';
+  for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData'])
+    if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
+  for (const k of ['caixaRawRows', 'arqueoHistorico'])
+    if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
+  if (d.libro !== undefined && (d.libro === null || typeof d.libro !== 'object')) return 'El campo «libro» no tiene el formato esperado.';
+  if (d.arqueo !== undefined && d.arqueo !== null && !esObj(d.arqueo)) return 'El campo «arqueo» no tiene el formato esperado.';
+  if (d.month !== undefined && d.month !== null && !/^\d{4}-\d{2}$/.test(d.month)) return 'El campo «month» no tiene el formato esperado.';
+  const r = resumenCopia(d);
+  if (r.diasFarmatic === 0 && r.entradasBanco === 0 && r.diasConEfectivo === 0 && r.ticketsLucia === 0 &&
+      r.mesesConLibro === 0 && r.arqueosGuardados === 0) return 'La copia está vacía: no hay nada que restaurar.';
+  return null;
+}
+
+function restoreBackupCompleto(evt) {
+  const input = evt.target;
+  const file = input.files && input.files[0];
+  input.value = '';                      // permite volver a elegir el mismo fichero
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => alert('No se ha podido leer el fichero. No se ha cambiado nada.');
+  reader.onload = e => {
+    let obj;
+    try { obj = JSON.parse(e.target.result); }
+    catch(err) { alert('El fichero no es una copia completa válida (no es un JSON legible).\n\nNo se ha cambiado nada.'); return; }
+    const problema = validarCopiaCompleta(obj);
+    if (problema) { alert(problema + '\n\nNo se ha cambiado nada.'); return; }
+    aplicarCopiaCompleta(obj, file.name);
+  };
+  reader.readAsText(file);
+}
+
+function aplicarCopiaCompleta(obj, nombreFichero) {
+  const r = resumenCopia(obj.data);
+  const hecha = new Date(obj.exportedAt);
+  const cuando = isNaN(hecha) ? 'fecha desconocida' : fechaHoraCorta(hecha);
+  const hayActuales = hayDatosQueCopiar();
+  const ok = confirm([
+    'Restaurar copia completa', '',
+    'Fichero: ' + nombreFichero,
+    'Hecha el: ' + cuando,
+    'Mes: ' + (r.mes || '—'),
+    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Tickets de Lucía: ' + r.ticketsLucia,
+    'Meses con libro: ' + r.mesesConLibro + ' · Meses con saldo: ' + r.mesesConSaldo + ' · Arqueos: ' + r.arqueosGuardados,
+    '',
+    'Esto SUSTITUYE todos los datos actuales de este navegador.' + (hayActuales ? ' Antes se descargará una copia de lo que hay ahora.' : ''),
+    '', '¿Restaurar?'
+  ].join('\n'));
+  if (!ok) return;
+
+  // 1) Copia de lo que hay ahora, por si la restauración no era la que se quería
+  if (hayActuales) {
+    const ahora = new Date();
+    descargarTexto(textoCopiaCompleta(ahora), 'Copia_completa_ANTES_de_restaurar_' + marcaTiempo(ahora) + '.json', 'application/json');
+  }
+  // 2) Escribir solo las claves que la app sabe guardar
+  const out = {};
+  Object.keys(buildPersistedState()).forEach(k => { if (obj.data[k] !== undefined) out[k] = obj.data[k]; });
+  restaurandoCopia = true;               // ningún guardado debe pisar lo restaurado mientras se recarga
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  } catch(e) {
+    restaurandoCopia = false;
+    alert('No se ha podido escribir la copia en el navegador. ' + motivoFalloGuardado(e) + '\n\nNo se ha cambiado nada.');
+    return;
+  }
+  try { sessionStorage.setItem('cuadre_restaurada', cuando); } catch(e) {}
+  toast('♻️ Copia restaurada. Recargando…');
+  setTimeout(() => location.reload(), 1500);   // da tiempo a que empiece la descarga de la copia previa
+}
+
+function avisarSiRestaurada() {
+  try {
+    const cuando = sessionStorage.getItem('cuadre_restaurada');
+    if (cuando === null) return;
+    sessionStorage.removeItem('cuadre_restaurada');
+    toast('✅ Copia restaurada (hecha el ' + cuando + ')');
+  } catch(e) {}
+}
+
+// ─── Aviso de copia ausente o antigua ─────────────────────────────────────
+function leerFechaCopia() {
+  let v = ultimaCopiaMem;
+  try { const s = localStorage.getItem(BACKUP_KEY); if (s && (!v || s > v)) v = s; } catch(e) {}
+  const d = v ? new Date(v) : null;
+  return d && !isNaN(d) ? d : null;
+}
+
+function actualizarAvisoCopia() {
+  const f = leerFechaCopia();
+  const hay = hayDatosQueCopiar();
+  const edad = f ? Date.now() - f.getTime() : null;
+  const antigua = hay && (f === null || edad > BACKUP_MAX_DIAS * 86400000);
+
+  const est = document.getElementById('copiaEstado');
+  if (est) {
+    est.classList.toggle('antigua', antigua);
+    est.textContent = f ? 'Última copia completa: ' + fechaHoraCorta(f) + ' (' + haceCuanto(edad) + ')'
+                        : (hay ? 'Sin copia completa todavía' : '');
+  }
+  if (antigua && !avisoCopiaCerrado) {
+    mostrarAviso('avisoCopia',
+      f ? '💾 Tu última copia completa es de ' + haceCuanto(edad) + ' (' + fechaHoraCorta(f) + '). Descarga una nueva.'
+        : '💾 Todavía no has descargado ninguna copia completa. Tus datos están solo en este navegador.',
+      [{ texto: '⬇ Descargar copia completa', principal: true, fn: exportBackupCompleto },
+       { texto: 'Ahora no', fn: () => { avisoCopiaCerrado = true; ocultarAviso('avisoCopia'); } }]);
+  } else {
+    ocultarAviso('avisoCopia');
+  }
 }
 
 
@@ -1645,6 +2021,9 @@ const state = {
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 window.onload = () => {
+  ajustarAlturaCabecera();
+  window.addEventListener('resize', ajustarAlturaCabecera);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustarAlturaCabecera);
   const now = new Date();
   const mo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
@@ -1684,6 +2063,8 @@ window.onload = () => {
     document.getElementById('monthPicker').value = mo;
     state.month = mo;
   }
+  actualizarAvisoCopia();
+  avisarSiRestaurada();
 
   document.getElementById('monthPicker').addEventListener('change', e => {
     const newMonth = e.target.value;
@@ -2817,6 +3198,13 @@ function initDriveUI() {
 
 
 // ─── Backup efectivo empleadas ────────────────────────────────────────────
+// Número de serie de Excel de una fecha 'YYYY-MM-DD'. Compartida por la exportación mensual
+// y por el backup de efectivo (E-05: antes solo existía dentro de exportExcelCore).
+function dateSerial(ds) {
+  const [y,m,d] = ds.split('-').map(Number);
+  return Math.round((new Date(y,m-1,d) - new Date(1900,0,1)) / 86400000) + 2;
+}
+
 function exportBackupEfectivo() {
   const wb = XLSX.utils.book_new();
   wb.Workbook = {WBProps:{date1904:false}};
@@ -2863,8 +3251,10 @@ function exportBackupEfectivo() {
   for (let r=1; r<rows.length; r++) {
     const tsCell = ws[XLSX.utils.encode_cell({r,c:0})];
     const dCell  = ws[XLSX.utils.encode_cell({r,c:1})];
-    if (tsCell) { tsCell.t='d'; tsCell.z='DD/MM/YYYY HH:MM:SS'; }
-    if (dCell)  { dCell.t='d';  dCell.z='DD/MM/YYYY'; }
+    // Número serial + formato de fecha. No usar t='d' con un número: SheetJS lo toma como
+    // milisegundos desde 1970 y todas las fechas salen en 1970 (E-05, segundo fallo).
+    if (tsCell) { tsCell.t='n'; tsCell.z='DD/MM/YYYY HH:MM:SS'; }
+    if (dCell)  { dCell.t='n';  dCell.z='DD/MM/YYYY'; }
   }
   ws['!cols'] = [{wch:20},{wch:12},{wch:12},{wch:14},{wch:10},{wch:10},{wch:20},{wch:10}];
   ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length-1,c:7}});
@@ -3849,11 +4239,6 @@ function exportExcelCore() {
   const GOLD_LT   = 'FFFFF2CC';  // amarillo suave totales
   const sortedAsc  = [...state.daysInMonth].sort();
   const sortedDays = [...state.daysInMonth].sort((a,b) => b.localeCompare(a)).filter(ds => getDayEfectivo(ds) > 0);
-
-  const dateSerial = ds => {
-    const [y,m,d] = ds.split('-').map(Number);
-    return Math.round((new Date(y,m-1,d) - new Date(1900,0,1)) / 86400000) + 2;
-  };
 
   function setCell(ws, r, c, value, {bold=false, bg=null, fontColor=null, fmt=null, align='right', italic=false}={}) {
     const addr = XLSX.utils.encode_cell({r, c});
