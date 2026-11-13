@@ -2067,28 +2067,7 @@ window.onload = () => {
   avisarSiRestaurada();
 
   document.getElementById('monthPicker').addEventListener('change', e => {
-    const newMonth = e.target.value;
-    if (state.month && state.month !== newMonth) {
-      saveSaldoMes();
-      // Guardar libro del mes actual ANTES de resetearlo
-      if (!state.libroPorMes) state.libroPorMes = {};
-      state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
-      saveState(); // guardar con el libro aún intacto
-    }
-    state.month = newMonth;
-    // Restaurar libro del nuevo mes si existe, si no resetear
-    if (state.libroPorMes?.[newMonth]) {
-      state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
-    } else {
-      state.libro = {};
-      LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
-      state.libro.custom = [];
-    }
-    restoreLibro();
-    // Restore saldo of this month if saved
-    const savedSaldo = state.saldosPorMes?.[newMonth];
-    const el = document.getElementById('saldoInicial');
-    if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
+    cambiarMes(e.target.value);
     saveState();
     rebuildDays();
     recalcAll();
@@ -2097,6 +2076,44 @@ window.onload = () => {
   initDriveUI();
   renderArqueoHistorico();
 };
+
+// Cambia el mes de trabajo: guarda el saldo y el Libro del mes que se deja y recupera los del nuevo
+// (o los deja vacíos si ese mes no tiene). Es el único sitio que cambia state.month una vez hay datos:
+// lo usan el selector de mes y la carga de Farmatic por fichero y por Drive (E-04), de modo que el Libro
+// y el saldo de un mes nunca se quedan puestos en otro. Devuelve true si el mes ha cambiado.
+// Quien la llame se encarga de guardar y de repintar (saveState, rebuildDays).
+function cambiarMes(newMonth) {
+  const picker = document.getElementById('monthPicker');
+  if (!newMonth) {                       // selector vaciado: se mantiene el mes actual
+    if (picker && state.month) picker.value = state.month;
+    return false;
+  }
+  if (picker) picker.value = newMonth;
+  if (state.month === newMonth) return false;   // mismo mes: no se toca ni el Libro ni el saldo
+  if (state.month) {
+    // El saldo ya se guarda al teclearlo; aquí solo se asegura, sin inventar un 0 en un mes que nadie ha tocado
+    if (state.saldosPorMes?.[state.month] !== undefined || parseFloat(document.getElementById('saldoInicial').value)) saveSaldoMes();
+    // Guardar libro del mes actual ANTES de resetearlo
+    if (!state.libroPorMes) state.libroPorMes = {};
+    state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
+    saveState(); // guardar con el libro aún intacto
+  }
+  state.month = newMonth;
+  // Restaurar libro del nuevo mes si existe, si no resetear
+  if (state.libroPorMes?.[newMonth]) {
+    state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
+  } else {
+    state.libro = {};
+    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+    state.libro.custom = [];
+  }
+  restoreLibro();
+  // Restaurar el saldo de este mes si estaba guardado
+  const savedSaldo = state.saldosPorMes?.[newMonth];
+  const el = document.getElementById('saldoInicial');
+  if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
+  return true;
+}
 
 function toDateStr(d) {
   if (!d) return '';
@@ -2204,13 +2221,9 @@ function loadFarmatic(evt) {
       return;
     }
 
-    // Auto-set month from first date found
+    // Auto-set month from first date found (por cambiarMes, como el selector: E-04)
     const firstDate = Object.keys(state.farmatic).sort()[0];
-    if (firstDate) {
-      const autoMonth = firstDate.slice(0, 7);
-      state.month = autoMonth;
-      document.getElementById('monthPicker').value = autoMonth;
-    }
+    if (firstDate) cambiarMes(firstDate.slice(0, 7));
 
     document.getElementById('stFarmatic').textContent = `✓ ${n} días cargados`;
     document.getElementById('zFarmatic').classList.add('loaded');
@@ -3146,12 +3159,9 @@ async function driveLoadFarmatic() {
     }
     const n = Object.keys(state.farmatic).length;
     if (n===0) throw new Error('No se encontraron días en el fichero');
-    // Auto-set month
+    // Auto-set month (por cambiarMes, como el selector: E-04)
     const firstDate = Object.keys(state.farmatic).sort()[0];
-    if (firstDate) {
-      state.month = firstDate.slice(0,7);
-      document.getElementById('monthPicker').value = state.month;
-    }
+    if (firstDate) cambiarMes(firstDate.slice(0,7));
     // Update UI
     const modDate = new Date(file.modifiedTime).toLocaleDateString('es-ES');
     status.textContent = `✅ ${file.name} · ${n} días · ${modDate}`;
