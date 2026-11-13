@@ -2237,6 +2237,18 @@ function loadFarmatic(evt) {
 
 
 // ─── Load Forms (Google Forms export) ─────────────────────────────────────
+// Nombre para comparar: sin mayúsculas, tildes ni espacios sobrantes (E-07)
+function normNombre(s) {
+  return (s == null ? '' : s).toString().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Empleada cuyo nombre es EXACTAMENTE ese (sin mayúsculas, tildes ni espacios). Antes se comparaba por
+// «contiene», así que «Diana» caía en «Ana» y el efectivo de una pisaba el de la otra (E-07).
+function buscarEmpleada(emps, nombre) {
+  const n = normNombre(nombre);
+  return n ? emps.find(e => normNombre(e.name) === n) : undefined;
+}
+
 // Parsea números con coma o punto decimal (ej. "15,50" o "15.50")
 function parseNum(v) {
   if (v === null || v === undefined || v === '') return 0;
@@ -2323,7 +2335,9 @@ function loadForms(evt) {
       // Guardar siempre lo que viene del Forms para comparar después
       if (!state.formsData[ds]) state.formsData[ds] = {};
       Object.entries(empData).forEach(([nombre, vals]) => {
-        state.formsData[ds][nombre] = Math.round(vals.efectivo*100)/100;
+        // Bajo el nombre de la empleada de la app si coincide, que es el que usa Seguimiento
+        const empF = buscarEmpleada(state.days[ds].employees, nombre);
+        state.formsData[ds][empF ? empF.name : nombre] = Math.round(vals.efectivo*100)/100;
       });
 
       // Si el día ya tiene efectivo introducido a mano, no tocarlo
@@ -2331,11 +2345,7 @@ function loadForms(evt) {
       if (yaHayDatos) { skipped++; return; }
 
       Object.entries(empData).forEach(([nombre, vals]) => {
-        const emp = state.days[ds].employees.find(e =>
-          e.name.toLowerCase() === nombre.toLowerCase() ||
-          nombre.toLowerCase().includes(e.name.toLowerCase()) ||
-          e.name.toLowerCase().includes(nombre.toLowerCase())
-        );
+        const emp = buscarEmpleada(state.days[ds].employees, nombre);
         if (emp) {
           emp.efectivo = Math.round(vals.efectivo*100)/100;
           if (vals.glovo > 0) {
