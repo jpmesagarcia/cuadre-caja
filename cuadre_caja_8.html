@@ -1973,12 +1973,23 @@ function clearSection(section) {
   if (state.selectedDay) renderDayDetail(state.selectedDay);
 }
 
+// Valor inicial de TODO lo que se guarda: las mismas claves que buildPersistedState. «Borrar todo» parte de
+// aquí, así no se queda nada en memoria que reaparezca en el siguiente guardado (E-19).
+function estadoPersistidoVacio() {
+  const libro = {};
+  LIBRO_FIXED.forEach(c => { libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+  libro.custom = [];
+  return {
+    farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
+    arqueo: null, arqueoHistorico: [], saldosPorMes: {}, libroPorMes: {}, formsData: {}
+  };
+}
+
 function clearState() {
   if (!confirm('¿Seguro que quieres borrar todos los datos guardados? Esta acción no se puede deshacer.')) return;
   localStorage.removeItem(STORAGE_KEY);
-  state.farmatic = {}; state.caixa = {}; state.days = {};
+  Object.assign(state, estadoPersistidoVacio());   // todas las claves guardadas, no solo algunas (E-19)
   state.daysInMonth = []; state.selectedDay = null;
-  state.month = null;
   document.getElementById('stFarmatic').textContent = 'Selecciona el Excel';
   document.getElementById('stCaixa').textContent = 'Selecciona el Excel';
   document.getElementById('zFarmatic').classList.remove('loaded');
@@ -1988,17 +1999,19 @@ function clearState() {
   document.getElementById('emptyEfectivo').style.display = 'block';
   document.getElementById('dayGridWrap').style.display = 'none';
   document.getElementById('dayDetail').style.display = 'none';
-  document.getElementById('emptyResumen').style.display = 'block';
-  document.getElementById('resumenTable').style.display = 'none';
-  document.getElementById('emptyCajas').style.display = 'block';
-  document.getElementById('cajasTable').style.display = 'none';
-  document.getElementById('btnExport').disabled = true;
   for (let i=1;i<=4;i++) { document.getElementById('s'+i).classList.remove('done','active'); }
   document.getElementById('s1').classList.add('active');
   const now = new Date();
   const mo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('monthPicker').value = mo;
   state.month = mo;
+  // Lo que se ve de lo borrado: saldo, recuento y Libro, el histórico del arqueo y las tablas
+  document.getElementById('saldoInicial').value = '0';
+  ['arqueoMonedas','arqueoCambio','arqueoBilletes'].forEach(id => { document.getElementById(id).value = ''; });
+  restoreLibro();
+  renderArqueoHistorico();
+  recalcAll();   // arqueo a cero y Resumen/Cajas/exportar vacíos
+  localStorage.removeItem(STORAGE_KEY);   // restoreLibro guarda al fijar los signos: se deja sin nada guardado
   toast('🗑 Datos borrados');
 }
 
@@ -2067,28 +2080,7 @@ window.onload = () => {
   avisarSiRestaurada();
 
   document.getElementById('monthPicker').addEventListener('change', e => {
-    const newMonth = e.target.value;
-    if (state.month && state.month !== newMonth) {
-      saveSaldoMes();
-      // Guardar libro del mes actual ANTES de resetearlo
-      if (!state.libroPorMes) state.libroPorMes = {};
-      state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
-      saveState(); // guardar con el libro aún intacto
-    }
-    state.month = newMonth;
-    // Restaurar libro del nuevo mes si existe, si no resetear
-    if (state.libroPorMes?.[newMonth]) {
-      state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
-    } else {
-      state.libro = {};
-      LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
-      state.libro.custom = [];
-    }
-    restoreLibro();
-    // Restore saldo of this month if saved
-    const savedSaldo = state.saldosPorMes?.[newMonth];
-    const el = document.getElementById('saldoInicial');
-    if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
+    cambiarMes(e.target.value);
     saveState();
     rebuildDays();
     recalcAll();
@@ -2097,6 +2089,44 @@ window.onload = () => {
   initDriveUI();
   renderArqueoHistorico();
 };
+
+// Cambia el mes de trabajo: guarda el saldo y el Libro del mes que se deja y recupera los del nuevo
+// (o los deja vacíos si ese mes no tiene). Es el único sitio que cambia state.month una vez hay datos:
+// lo usan el selector de mes y la carga de Farmatic por fichero y por Drive (E-04), de modo que el Libro
+// y el saldo de un mes nunca se quedan puestos en otro. Devuelve true si el mes ha cambiado.
+// Quien la llame se encarga de guardar y de repintar (saveState, rebuildDays).
+function cambiarMes(newMonth) {
+  const picker = document.getElementById('monthPicker');
+  if (!newMonth) {                       // selector vaciado: se mantiene el mes actual
+    if (picker && state.month) picker.value = state.month;
+    return false;
+  }
+  if (picker) picker.value = newMonth;
+  if (state.month === newMonth) return false;   // mismo mes: no se toca ni el Libro ni el saldo
+  if (state.month) {
+    // El saldo ya se guarda al teclearlo; aquí solo se asegura, sin inventar un 0 en un mes que nadie ha tocado
+    if (state.saldosPorMes?.[state.month] !== undefined || parseFloat(document.getElementById('saldoInicial').value)) saveSaldoMes();
+    // Guardar libro del mes actual ANTES de resetearlo
+    if (!state.libroPorMes) state.libroPorMes = {};
+    state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
+    saveState(); // guardar con el libro aún intacto
+  }
+  state.month = newMonth;
+  // Restaurar libro del nuevo mes si existe, si no resetear
+  if (state.libroPorMes?.[newMonth]) {
+    state.libro = JSON.parse(JSON.stringify(state.libroPorMes[newMonth]));
+  } else {
+    state.libro = {};
+    LIBRO_FIXED.forEach(c => { state.libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+    state.libro.custom = [];
+  }
+  restoreLibro();
+  // Restaurar el saldo de este mes si estaba guardado
+  const savedSaldo = state.saldosPorMes?.[newMonth];
+  const el = document.getElementById('saldoInicial');
+  if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
+  return true;
+}
 
 function toDateStr(d) {
   if (!d) return '';
@@ -2204,13 +2234,9 @@ function loadFarmatic(evt) {
       return;
     }
 
-    // Auto-set month from first date found
+    // Auto-set month from first date found (por cambiarMes, como el selector: E-04)
     const firstDate = Object.keys(state.farmatic).sort()[0];
-    if (firstDate) {
-      const autoMonth = firstDate.slice(0, 7);
-      state.month = autoMonth;
-      document.getElementById('monthPicker').value = autoMonth;
-    }
+    if (firstDate) cambiarMes(firstDate.slice(0, 7));
 
     document.getElementById('stFarmatic').textContent = `✓ ${n} días cargados`;
     document.getElementById('zFarmatic').classList.add('loaded');
@@ -2224,6 +2250,25 @@ function loadFarmatic(evt) {
 
 
 // ─── Load Forms (Google Forms export) ─────────────────────────────────────
+// Nombre para comparar: sin mayúsculas, tildes ni espacios sobrantes (E-07)
+function normNombre(s) {
+  return (s == null ? '' : s).toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Empleada cuyo nombre es EXACTAMENTE ese (sin mayúsculas, tildes ni espacios). Antes se comparaba por
+// «contiene», así que «Diana» caía en «Ana» y el efectivo de una pisaba el de la otra (E-07).
+function buscarEmpleada(emps, nombre) {
+  const n = normNombre(nombre);
+  return n ? emps.find(e => normNombre(e.name) === n) : undefined;
+}
+
+// ¿Es Lucía? Solo si el nombre es exactamente «Lucía» (sin distinguir mayúsculas, tildes ni espacios).
+// Antes bastaba con que el nombre CONTUVIERA «luc», así que cualquier otra empleada (Luciana, Lucas…)
+// recibía el tratamiento de Lucía: su efectivo se sustituía por el total de tickets de Lucía (E-31).
+function esLucia(nombre) {
+  return normNombre(nombre) === 'lucia';
+}
+
 // Parsea números con coma o punto decimal (ej. "15,50" o "15.50")
 function parseNum(v) {
   if (v === null || v === undefined || v === '') return 0;
@@ -2310,7 +2355,9 @@ function loadForms(evt) {
       // Guardar siempre lo que viene del Forms para comparar después
       if (!state.formsData[ds]) state.formsData[ds] = {};
       Object.entries(empData).forEach(([nombre, vals]) => {
-        state.formsData[ds][nombre] = Math.round(vals.efectivo*100)/100;
+        // Bajo el nombre de la empleada de la app si coincide, que es el que usa Seguimiento
+        const empF = buscarEmpleada(state.days[ds].employees, nombre);
+        state.formsData[ds][empF ? empF.name : nombre] = Math.round(vals.efectivo*100)/100;
       });
 
       // Si el día ya tiene efectivo introducido a mano, no tocarlo
@@ -2318,11 +2365,7 @@ function loadForms(evt) {
       if (yaHayDatos) { skipped++; return; }
 
       Object.entries(empData).forEach(([nombre, vals]) => {
-        const emp = state.days[ds].employees.find(e =>
-          e.name.toLowerCase() === nombre.toLowerCase() ||
-          nombre.toLowerCase().includes(e.name.toLowerCase()) ||
-          e.name.toLowerCase().includes(nombre.toLowerCase())
-        );
+        const emp = buscarEmpleada(state.days[ds].employees, nombre);
         if (emp) {
           emp.efectivo = Math.round(vals.efectivo*100)/100;
           if (vals.glovo > 0) {
@@ -2414,8 +2457,33 @@ function loadCaixa(evt) {
 }
 
 // ─── Rebuild day list ──────────────────────────────────────────────────────
+// Un mes sin días de Farmatic (o sin Farmatic cargado) no tiene resumen, cajas ni nada que exportar: se
+// vacían las vistas en vez de dejar las tablas del mes anterior y el botón de exportar activo (E-15).
+function mostrarMesSinDatos() {
+  const sinFarmatic = Object.keys(state.farmatic).length === 0;
+  [['emptyResumen','resumenTable','el resumen'], ['emptyCajas','cajasTable','el libro de cajas']].forEach(([vacio, tabla, destino]) => {
+    const el = document.getElementById(vacio);
+    const p = el.querySelector('p');
+    if (p) p.innerHTML = sinFarmatic
+      ? 'Carga primero el Excel de Farmatic<br>para ver ' + destino + '.'
+      : 'Este mes no tiene datos de Farmatic.<br>Elige otro mes o carga su Excel.';
+    el.style.display = 'block';
+    document.getElementById(tabla).style.display = 'none';
+  });
+  document.getElementById('btnExport').disabled = true;
+}
+
 function rebuildDays() {
-  if (Object.keys(state.farmatic).length === 0) return;
+  if (Object.keys(state.farmatic).length === 0) {
+    // Sin Farmatic (p. ej. tras «Borrar → Datos Farmatic»): no se deja a la vista nada de antes (E-15)
+    state.daysInMonth = []; state.selectedDay = null;
+    document.getElementById('chipDays').textContent = '0 días';
+    document.getElementById('emptyEfectivo').style.display = 'block';
+    document.getElementById('dayGridWrap').style.display = 'none';
+    document.getElementById('dayDetail').style.display = 'none';
+    recalcAll();
+    return;
+  }
 
   // Auto-detect month from first date if not set
   const allDates = Object.keys(state.farmatic).sort();
@@ -2441,6 +2509,10 @@ function rebuildDays() {
   }
   document.getElementById('emptyEfectivo').style.display = 'none';
   document.getElementById('dayGridWrap').style.display = 'block';
+  if (state.daysInMonth.length === 0 && state.selectedDay) {   // el día abierto era de otro mes (E-15)
+    state.selectedDay = null;
+    document.getElementById('dayDetail').style.display = 'none';
+  }
 
   // Init day state for any new days
   state.daysInMonth.forEach(ds => {
@@ -2534,7 +2606,7 @@ function renderEmpGrid(ds) {
   const grid = document.getElementById('empGrid');
   grid.innerHTML = '';
   emps.forEach((emp, idx) => {
-    const isLucia = emp.name.toLowerCase().includes('luc') || emp.glovo > 0;
+    const isLucia = esLucia(emp.name) || emp.glovo > 0;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
@@ -2674,6 +2746,7 @@ function updateLibroTotals() {
   if (totalEl) { totalEl.textContent = netFmt; totalEl.style.color = net>=0?'#fff':'#ffb3b3'; }
   if (chipEl)  { chipEl.textContent = netFmt; }
   renderCajas();
+  renderArqueo();   // el Libro cuenta en el efectivo esperado del arqueo (E-13)
 }
 
 function getLibroTotals() {
@@ -3146,12 +3219,9 @@ async function driveLoadFarmatic() {
     }
     const n = Object.keys(state.farmatic).length;
     if (n===0) throw new Error('No se encontraron días en el fichero');
-    // Auto-set month
+    // Auto-set month (por cambiarMes, como el selector: E-04)
     const firstDate = Object.keys(state.farmatic).sort()[0];
-    if (firstDate) {
-      state.month = firstDate.slice(0,7);
-      document.getElementById('monthPicker').value = state.month;
-    }
+    if (firstDate) cambiarMes(firstDate.slice(0,7));
     // Update UI
     const modDate = new Date(file.modifiedTime).toLocaleDateString('es-ES');
     status.textContent = `✅ ${file.name} · ${n} días · ${modDate}`;
@@ -3224,13 +3294,13 @@ function exportBackupEfectivo() {
 
     // Asignar glovo a la primera empleada con efectivo
     const empsConEfectivo = d.employees.filter(emp => {
-      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const ef = esLucia(emp.name) ? getLuciaTotal(ds) : (emp.efectivo||0);
       return ef > 0;
     });
     const primeraEmp = empsConEfectivo[0]?.name || '';
 
     d.employees.forEach((emp, i) => {
-      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const ef = esLucia(emp.name) ? getLuciaTotal(ds) : (emp.efectivo||0);
       if (ef <= 0) return;
       const glovo = d.glovo > 0 && emp.name === primeraEmp ? d.glovo : null;
       const notas = d.notas || null;
@@ -3324,10 +3394,15 @@ function handleLuciaTicketsFile(evt) {
 
 
 // ─── Arqueo de caja ────────────────────────────────────────────────────────
-function arqueoChanged() {
+// Cálculo del arqueo: recuento tecleado frente al efectivo esperado de los datos del mes. Es el único sitio
+// que lo calcula para lo que se VE (renderArqueo) y para lo que se GUARDA (saveArqueoSnapshot), de modo que
+// nunca pueden diferir (E-13). Estadísticas conserva su propia copia de la fórmula: es E-38 (fase 5).
+function calcArqueo() {
   const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
   const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
   const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
+  const hayRecuento = ['arqueoMonedas','arqueoCambio','arqueoBilletes']
+    .some(id => document.getElementById(id).value !== '');
   const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
 
   // Total tickets Lucía del mes
@@ -3348,44 +3423,58 @@ function arqueoChanged() {
     acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
   });
   // Aplicar libro (ya incluye el neto del libro)
-  const ltArqueo = getLibroTotals();
-  acumEsperado = Math.round((acumEsperado + ltArqueo.net)*100)/100;
+  acumEsperado = Math.round((acumEsperado + getLibroTotals().net)*100)/100;
 
   // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
   const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
 
   // Diferencia = físico total − esperado neto
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
+  return {monedas, cambio, billetes, hayRecuento, totalFisico, totalLucia, acumEsperado, esperadoNeto, diff};
+}
 
-  // Update UI
-  document.getElementById('arqueoTotal').textContent       = fmt(totalFisico)+' €';
-  document.getElementById('arqueoLucia').textContent       = '−'+fmt(totalLucia)+' €';
-  document.getElementById('arqueoNeto').textContent        = fmt(totalFisico)+' €';
-  document.getElementById('arqueoEsperado').textContent    = fmt(acumEsperado)+' €';
-  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(totalLucia)+' €';
-  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(esperadoNeto)+' €';
+// Pinta el arqueo con los datos de ahora mismo. Se llama al abrir la pestaña y desde recalcAll (cambia el
+// efectivo, los tickets de Lucía, los gastos, el saldo, el Libro o el mes), no solo al teclear un recuento.
+function renderArqueo() {
+  const c = calcArqueo();
+  document.getElementById('arqueoTotal').textContent       = fmt(c.totalFisico)+' €';
+  document.getElementById('arqueoLucia').textContent       = '−'+fmt(c.totalLucia)+' €';
+  document.getElementById('arqueoNeto').textContent        = fmt(c.totalFisico)+' €';
+  document.getElementById('arqueoEsperado').textContent    = fmt(c.acumEsperado)+' €';
+  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(c.totalLucia)+' €';
+  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(c.esperadoNeto)+' €';
 
   const diffEl  = document.getElementById('arqueoDiff');
   const diffMsg = document.getElementById('arqueoDiffMsg');
   const chip    = document.getElementById('arqueoChip');
 
-  if (diff === 0) {
+  if (!c.hayRecuento) {
+    // Sin recuento no hay diferencia que mostrar (no es un faltante de todo el efectivo)
+    diffEl.textContent  = '—';
+    diffEl.className    = 'arqueo-diff-badge';
+    diffMsg.textContent = '';
+    chip.textContent    = '—';
+  } else if (c.diff === 0) {
     diffEl.textContent  = '✓ Cuadra';
     diffEl.className    = 'arqueo-diff-badge ok';
     diffMsg.textContent = 'El efectivo en caja coincide exactamente con lo esperado.';
     chip.textContent    = '✅ Cuadra';
   } else {
-    const sign = diff > 0 ? '+' : '';
-    diffEl.textContent  = sign+fmt(diff)+' €';
+    const sign = c.diff > 0 ? '+' : '';
+    diffEl.textContent  = sign+fmt(c.diff)+' €';
     diffEl.className    = 'arqueo-diff-badge err';
-    diffMsg.textContent = diff > 0
-      ? `Hay ${fmt(diff)} € de más en caja.`
-      : `Faltan ${fmt(Math.abs(diff))} € en caja.`;
-    chip.textContent = (diff>0?'+':'')+fmt(diff)+' €';
+    diffMsg.textContent = c.diff > 0
+      ? `Hay ${fmt(c.diff)} € de más en caja.`
+      : `Faltan ${fmt(Math.abs(c.diff))} € en caja.`;
+    chip.textContent = (c.diff>0?'+':'')+fmt(c.diff)+' €';
   }
+  return c;
+}
 
+function arqueoChanged() {
+  const c = renderArqueo();
   // Save arqueo state
-  state.arqueo = {monedas, cambio, billetes};
+  state.arqueo = {monedas: c.monedas, cambio: c.cambio, billetes: c.billetes};
   saveState();
 }
 
@@ -3400,28 +3489,8 @@ function restoreArqueo() {
 
 // ─── Histórico arqueo ─────────────────────────────────────────────────────
 function saveArqueoSnapshot() {
-  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
-  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
-  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
-  const totalFisico = Math.round((monedas+cambio+billetes)*100)/100;
+  const {totalFisico, diff} = calcArqueo();   // el mismo cálculo que se ve en pantalla (E-13)
   if (totalFisico === 0) { toast('⚠️ Introduce el recuento antes de guardar'); return; }
-
-  // Recalculate diff
-  let totalLucia = 0;
-  state.daysInMonth.forEach(ds => {
-    (state.days[ds]?.luciaTickets||[]).forEach(t => {
-      totalLucia = Math.round((totalLucia+(t.amount||0))*100)/100;
-    });
-  });
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
-  let acumEsp = saldo0;
-  state.daysInMonth.forEach(ds => {
-    acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
-  });
-  // Incluir neto del libro
-  acumEsp = Math.round((acumEsp + getLibroTotals().net)*100)/100;
-  const esperadoNeto = Math.round((acumEsp - totalLucia)*100)/100;
-  const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
 
   if (!state.arqueoHistorico) state.arqueoHistorico = [];
   const today = new Date().toISOString().slice(0,10);
@@ -3776,7 +3845,7 @@ function renderSeguimiento() {
     const formsDay = state.formsData?.[ds] || {};
 
     d.employees.forEach(emp => {
-      const isLucia = emp.name.toLowerCase().includes('luc');
+      const isLucia = esLucia(emp.name);
       const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
       const formsEf = formsDay[emp.name] || 0;
 
@@ -3851,7 +3920,7 @@ function exportSeguimiento() {
     if (!d?.employees) return;
     const formsDay = state.formsData?.[ds] || {};
     d.employees.forEach(emp => {
-      const isLucia = emp.name.toLowerCase().includes('luc');
+      const isLucia = esLucia(emp.name);
       const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
       const formsEf = formsDay[emp.name] || 0;
       if (Math.abs(finalEf - formsEf) < 0.01) return;
@@ -3915,7 +3984,7 @@ document.addEventListener('keydown', e => {
 // ─── Lucía tickets ────────────────────────────────────────────────────────
 function getLuciaEmp(ds) {
   if (!state.days[ds]) return null;
-  return state.days[ds].employees.find(e => e.name.toLowerCase().includes('luc'));
+  return state.days[ds].employees.find(e => esLucia(e.name));
 }
 
 function getLuciaTotal(ds) {
@@ -3993,7 +4062,7 @@ function getDayEfectivo(ds) {
   if (!d) return 0;
   // Lucía's efectivo comes from her ticket total, not manual input
   return d.employees.reduce((s,e) => {
-    if (e.name.toLowerCase().includes('luc')) return s + getLuciaTotal(ds);
+    if (esLucia(e.name)) return s + getLuciaTotal(ds);
     return s + (e.efectivo||0);
   }, 0);
 }
@@ -4028,7 +4097,8 @@ function updateDaySummary(ds) {
 
 // ─── Recalc all (Resumen + Cajas) ─────────────────────────────────────────
 function recalcAll() {
-  if (state.daysInMonth.length === 0) return;
+  renderArqueo();   // el arqueo se calcula aunque el mes no tenga días (saldo y Libro cuentan)
+  if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }
   renderResumen();
   renderCajas();
   checkExportReady();
@@ -4089,6 +4159,7 @@ function getLibroGasto() {
 }
 
 function renderCajas() {
+  if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }   // E-15
   const tb = document.getElementById('tCajas');
   const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
   let html = `<thead><tr>
@@ -4219,6 +4290,10 @@ function exportExcel() {
 
 // ─── Export Excel ──────────────────────────────────────────────────────────
 function exportExcelCore() {
+  if (!state.month || state.daysInMonth.length === 0) {   // E-15: nunca se exporta un mes sin datos
+    toast('⚠️ Este mes no tiene datos de Farmatic: no hay nada que exportar');
+    return;
+  }
   const wb = XLSX.utils.book_new();
   wb.Workbook = wb.Workbook || {};
   wb.Workbook.WBProps = wb.Workbook.WBProps || {};
@@ -4562,8 +4637,8 @@ function exportExcelCore() {
     const diff = n2(dineroReal - ticket);
     const dayNum = parseInt(ds.split('-')[2]);
 
-    const empGlovo   = d.employees.filter(e => e.name.toLowerCase().includes('luc'));
-    const empNormal  = d.employees.filter(e => !e.name.toLowerCase().includes('luc'));
+    const empGlovo   = d.employees.filter(e => esLucia(e.name));
+    const empNormal  = d.employees.filter(e => !esLucia(e.name));
     const totalEfNormal = n2(empNormal.reduce((s,e)=>s+(e.efectivo||0),0));
     const totalGlovo    = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
     const totalEfAll    = n2(caja);
@@ -4649,7 +4724,7 @@ function exportExcelCore() {
     // Employee rows (idx 20+)
     d.employees.forEach((emp, i) => {
       const r = 20 + i;
-      const isGl = emp.name.toLowerCase().includes('luc');
+      const isGl = esLucia(emp.name);
       const ef = n2(isGl ? getLuciaTotal(ds) : (emp.efectivo||0));
       const bg = i%2===0 ? 'FFFFFFFF' : 'FFF2F8F8';
       sc(wsDay, r, 4, emp.name, {...EMP_NAME, fill:{patternType:'solid',fgColor:{rgb:bg}}});
@@ -4813,6 +4888,7 @@ function showTab(id) {
   document.getElementById('tab-'+id).classList.add('active');
   event.target.classList.add('active');
   if (id === 'stats') renderStats();
+  if (id === 'arqueo') renderArqueo();
 }
 
 function setStep(n) {
