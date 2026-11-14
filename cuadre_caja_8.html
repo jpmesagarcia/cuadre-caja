@@ -2704,6 +2704,7 @@ function updateLibroTotals() {
   if (totalEl) { totalEl.textContent = netFmt; totalEl.style.color = net>=0?'#fff':'#ffb3b3'; }
   if (chipEl)  { chipEl.textContent = netFmt; }
   renderCajas();
+  renderArqueo();   // el Libro cuenta en el efectivo esperado del arqueo (E-13)
 }
 
 function getLibroTotals() {
@@ -3351,10 +3352,15 @@ function handleLuciaTicketsFile(evt) {
 
 
 // ─── Arqueo de caja ────────────────────────────────────────────────────────
-function arqueoChanged() {
+// Cálculo del arqueo: recuento tecleado frente al efectivo esperado de los datos del mes. Es el único sitio
+// que lo calcula para lo que se VE (renderArqueo) y para lo que se GUARDA (saveArqueoSnapshot), de modo que
+// nunca pueden diferir (E-13). Estadísticas conserva su propia copia de la fórmula: es E-38 (fase 5).
+function calcArqueo() {
   const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
   const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
   const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
+  const hayRecuento = ['arqueoMonedas','arqueoCambio','arqueoBilletes']
+    .some(id => document.getElementById(id).value !== '');
   const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
 
   // Total tickets Lucía del mes
@@ -3375,44 +3381,58 @@ function arqueoChanged() {
     acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
   });
   // Aplicar libro (ya incluye el neto del libro)
-  const ltArqueo = getLibroTotals();
-  acumEsperado = Math.round((acumEsperado + ltArqueo.net)*100)/100;
+  acumEsperado = Math.round((acumEsperado + getLibroTotals().net)*100)/100;
 
   // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
   const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
 
   // Diferencia = físico total − esperado neto
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
+  return {monedas, cambio, billetes, hayRecuento, totalFisico, totalLucia, acumEsperado, esperadoNeto, diff};
+}
 
-  // Update UI
-  document.getElementById('arqueoTotal').textContent       = fmt(totalFisico)+' €';
-  document.getElementById('arqueoLucia').textContent       = '−'+fmt(totalLucia)+' €';
-  document.getElementById('arqueoNeto').textContent        = fmt(totalFisico)+' €';
-  document.getElementById('arqueoEsperado').textContent    = fmt(acumEsperado)+' €';
-  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(totalLucia)+' €';
-  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(esperadoNeto)+' €';
+// Pinta el arqueo con los datos de ahora mismo. Se llama al abrir la pestaña y desde recalcAll (cambia el
+// efectivo, los tickets de Lucía, los gastos, el saldo, el Libro o el mes), no solo al teclear un recuento.
+function renderArqueo() {
+  const c = calcArqueo();
+  document.getElementById('arqueoTotal').textContent       = fmt(c.totalFisico)+' €';
+  document.getElementById('arqueoLucia').textContent       = '−'+fmt(c.totalLucia)+' €';
+  document.getElementById('arqueoNeto').textContent        = fmt(c.totalFisico)+' €';
+  document.getElementById('arqueoEsperado').textContent    = fmt(c.acumEsperado)+' €';
+  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(c.totalLucia)+' €';
+  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(c.esperadoNeto)+' €';
 
   const diffEl  = document.getElementById('arqueoDiff');
   const diffMsg = document.getElementById('arqueoDiffMsg');
   const chip    = document.getElementById('arqueoChip');
 
-  if (diff === 0) {
+  if (!c.hayRecuento) {
+    // Sin recuento no hay diferencia que mostrar (no es un faltante de todo el efectivo)
+    diffEl.textContent  = '—';
+    diffEl.className    = 'arqueo-diff-badge';
+    diffMsg.textContent = '';
+    chip.textContent    = '—';
+  } else if (c.diff === 0) {
     diffEl.textContent  = '✓ Cuadra';
     diffEl.className    = 'arqueo-diff-badge ok';
     diffMsg.textContent = 'El efectivo en caja coincide exactamente con lo esperado.';
     chip.textContent    = '✅ Cuadra';
   } else {
-    const sign = diff > 0 ? '+' : '';
-    diffEl.textContent  = sign+fmt(diff)+' €';
+    const sign = c.diff > 0 ? '+' : '';
+    diffEl.textContent  = sign+fmt(c.diff)+' €';
     diffEl.className    = 'arqueo-diff-badge err';
-    diffMsg.textContent = diff > 0
-      ? `Hay ${fmt(diff)} € de más en caja.`
-      : `Faltan ${fmt(Math.abs(diff))} € en caja.`;
-    chip.textContent = (diff>0?'+':'')+fmt(diff)+' €';
+    diffMsg.textContent = c.diff > 0
+      ? `Hay ${fmt(c.diff)} € de más en caja.`
+      : `Faltan ${fmt(Math.abs(c.diff))} € en caja.`;
+    chip.textContent = (c.diff>0?'+':'')+fmt(c.diff)+' €';
   }
+  return c;
+}
 
+function arqueoChanged() {
+  const c = renderArqueo();
   // Save arqueo state
-  state.arqueo = {monedas, cambio, billetes};
+  state.arqueo = {monedas: c.monedas, cambio: c.cambio, billetes: c.billetes};
   saveState();
 }
 
@@ -3427,28 +3447,8 @@ function restoreArqueo() {
 
 // ─── Histórico arqueo ─────────────────────────────────────────────────────
 function saveArqueoSnapshot() {
-  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
-  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
-  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
-  const totalFisico = Math.round((monedas+cambio+billetes)*100)/100;
+  const {totalFisico, diff} = calcArqueo();   // el mismo cálculo que se ve en pantalla (E-13)
   if (totalFisico === 0) { toast('⚠️ Introduce el recuento antes de guardar'); return; }
-
-  // Recalculate diff
-  let totalLucia = 0;
-  state.daysInMonth.forEach(ds => {
-    (state.days[ds]?.luciaTickets||[]).forEach(t => {
-      totalLucia = Math.round((totalLucia+(t.amount||0))*100)/100;
-    });
-  });
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
-  let acumEsp = saldo0;
-  state.daysInMonth.forEach(ds => {
-    acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
-  });
-  // Incluir neto del libro
-  acumEsp = Math.round((acumEsp + getLibroTotals().net)*100)/100;
-  const esperadoNeto = Math.round((acumEsp - totalLucia)*100)/100;
-  const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
 
   if (!state.arqueoHistorico) state.arqueoHistorico = [];
   const today = new Date().toISOString().slice(0,10);
@@ -4055,6 +4055,7 @@ function updateDaySummary(ds) {
 
 // ─── Recalc all (Resumen + Cajas) ─────────────────────────────────────────
 function recalcAll() {
+  renderArqueo();   // el arqueo se calcula aunque el mes no tenga días (saldo y Libro cuentan)
   if (state.daysInMonth.length === 0) return;
   renderResumen();
   renderCajas();
@@ -4840,6 +4841,7 @@ function showTab(id) {
   document.getElementById('tab-'+id).classList.add('active');
   event.target.classList.add('active');
   if (id === 'stats') renderStats();
+  if (id === 'arqueo') renderArqueo();
 }
 
 function setStep(n) {
