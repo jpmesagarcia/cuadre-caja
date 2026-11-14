@@ -2239,7 +2239,7 @@ function loadFarmatic(evt) {
 // ─── Load Forms (Google Forms export) ─────────────────────────────────────
 // Nombre para comparar: sin mayúsculas, tildes ni espacios sobrantes (E-07)
 function normNombre(s) {
-  return (s == null ? '' : s).toString().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return (s == null ? '' : s).toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 // Empleada cuyo nombre es EXACTAMENTE ese (sin mayúsculas, tildes ni espacios). Antes se comparaba por
@@ -2247,6 +2247,13 @@ function normNombre(s) {
 function buscarEmpleada(emps, nombre) {
   const n = normNombre(nombre);
   return n ? emps.find(e => normNombre(e.name) === n) : undefined;
+}
+
+// ¿Es Lucía? Solo si el nombre es exactamente «Lucía» (sin distinguir mayúsculas, tildes ni espacios).
+// Antes bastaba con que el nombre CONTUVIERA «luc», así que cualquier otra empleada (Luciana, Lucas…)
+// recibía el tratamiento de Lucía: su efectivo se sustituía por el total de tickets de Lucía (E-31).
+function esLucia(nombre) {
+  return normNombre(nombre) === 'lucia';
 }
 
 // Parsea números con coma o punto decimal (ej. "15,50" o "15.50")
@@ -2557,7 +2564,7 @@ function renderEmpGrid(ds) {
   const grid = document.getElementById('empGrid');
   grid.innerHTML = '';
   emps.forEach((emp, idx) => {
-    const isLucia = emp.name.toLowerCase().includes('luc') || emp.glovo > 0;
+    const isLucia = esLucia(emp.name) || emp.glovo > 0;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
@@ -3244,13 +3251,13 @@ function exportBackupEfectivo() {
 
     // Asignar glovo a la primera empleada con efectivo
     const empsConEfectivo = d.employees.filter(emp => {
-      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const ef = esLucia(emp.name) ? getLuciaTotal(ds) : (emp.efectivo||0);
       return ef > 0;
     });
     const primeraEmp = empsConEfectivo[0]?.name || '';
 
     d.employees.forEach((emp, i) => {
-      const ef = emp.name.toLowerCase().includes('luc') ? getLuciaTotal(ds) : (emp.efectivo||0);
+      const ef = esLucia(emp.name) ? getLuciaTotal(ds) : (emp.efectivo||0);
       if (ef <= 0) return;
       const glovo = d.glovo > 0 && emp.name === primeraEmp ? d.glovo : null;
       const notas = d.notas || null;
@@ -3796,7 +3803,7 @@ function renderSeguimiento() {
     const formsDay = state.formsData?.[ds] || {};
 
     d.employees.forEach(emp => {
-      const isLucia = emp.name.toLowerCase().includes('luc');
+      const isLucia = esLucia(emp.name);
       const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
       const formsEf = formsDay[emp.name] || 0;
 
@@ -3871,7 +3878,7 @@ function exportSeguimiento() {
     if (!d?.employees) return;
     const formsDay = state.formsData?.[ds] || {};
     d.employees.forEach(emp => {
-      const isLucia = emp.name.toLowerCase().includes('luc');
+      const isLucia = esLucia(emp.name);
       const finalEf = isLucia ? getLuciaTotal(ds) : (emp.efectivo||0);
       const formsEf = formsDay[emp.name] || 0;
       if (Math.abs(finalEf - formsEf) < 0.01) return;
@@ -3935,7 +3942,7 @@ document.addEventListener('keydown', e => {
 // ─── Lucía tickets ────────────────────────────────────────────────────────
 function getLuciaEmp(ds) {
   if (!state.days[ds]) return null;
-  return state.days[ds].employees.find(e => e.name.toLowerCase().includes('luc'));
+  return state.days[ds].employees.find(e => esLucia(e.name));
 }
 
 function getLuciaTotal(ds) {
@@ -4013,7 +4020,7 @@ function getDayEfectivo(ds) {
   if (!d) return 0;
   // Lucía's efectivo comes from her ticket total, not manual input
   return d.employees.reduce((s,e) => {
-    if (e.name.toLowerCase().includes('luc')) return s + getLuciaTotal(ds);
+    if (esLucia(e.name)) return s + getLuciaTotal(ds);
     return s + (e.efectivo||0);
   }, 0);
 }
@@ -4582,8 +4589,8 @@ function exportExcelCore() {
     const diff = n2(dineroReal - ticket);
     const dayNum = parseInt(ds.split('-')[2]);
 
-    const empGlovo   = d.employees.filter(e => e.name.toLowerCase().includes('luc'));
-    const empNormal  = d.employees.filter(e => !e.name.toLowerCase().includes('luc'));
+    const empGlovo   = d.employees.filter(e => esLucia(e.name));
+    const empNormal  = d.employees.filter(e => !esLucia(e.name));
     const totalEfNormal = n2(empNormal.reduce((s,e)=>s+(e.efectivo||0),0));
     const totalGlovo    = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
     const totalEfAll    = n2(caja);
@@ -4669,7 +4676,7 @@ function exportExcelCore() {
     // Employee rows (idx 20+)
     d.employees.forEach((emp, i) => {
       const r = 20 + i;
-      const isGl = emp.name.toLowerCase().includes('luc');
+      const isGl = esLucia(emp.name);
       const ef = n2(isGl ? getLuciaTotal(ds) : (emp.efectivo||0));
       const bg = i%2===0 ? 'FFFFFFFF' : 'FFF2F8F8';
       sc(wsDay, r, 4, emp.name, {...EMP_NAME, fill:{patternType:'solid',fgColor:{rgb:bg}}});
