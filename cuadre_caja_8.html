@@ -1973,12 +1973,23 @@ function clearSection(section) {
   if (state.selectedDay) renderDayDetail(state.selectedDay);
 }
 
+// Valor inicial de TODO lo que se guarda: las mismas claves que buildPersistedState. «Borrar todo» parte de
+// aquí, así no se queda nada en memoria que reaparezca en el siguiente guardado (E-19).
+function estadoPersistidoVacio() {
+  const libro = {};
+  LIBRO_FIXED.forEach(c => { libro[c.key] = {amount:0, sign:c.alwaysNeg?'neg':'pos'}; });
+  libro.custom = [];
+  return {
+    farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
+    arqueo: null, arqueoHistorico: [], saldosPorMes: {}, libroPorMes: {}, formsData: {}
+  };
+}
+
 function clearState() {
   if (!confirm('¿Seguro que quieres borrar todos los datos guardados? Esta acción no se puede deshacer.')) return;
   localStorage.removeItem(STORAGE_KEY);
-  state.farmatic = {}; state.caixa = {}; state.days = {};
+  Object.assign(state, estadoPersistidoVacio());   // todas las claves guardadas, no solo algunas (E-19)
   state.daysInMonth = []; state.selectedDay = null;
-  state.month = null;
   document.getElementById('stFarmatic').textContent = 'Selecciona el Excel';
   document.getElementById('stCaixa').textContent = 'Selecciona el Excel';
   document.getElementById('zFarmatic').classList.remove('loaded');
@@ -1988,17 +1999,19 @@ function clearState() {
   document.getElementById('emptyEfectivo').style.display = 'block';
   document.getElementById('dayGridWrap').style.display = 'none';
   document.getElementById('dayDetail').style.display = 'none';
-  document.getElementById('emptyResumen').style.display = 'block';
-  document.getElementById('resumenTable').style.display = 'none';
-  document.getElementById('emptyCajas').style.display = 'block';
-  document.getElementById('cajasTable').style.display = 'none';
-  document.getElementById('btnExport').disabled = true;
   for (let i=1;i<=4;i++) { document.getElementById('s'+i).classList.remove('done','active'); }
   document.getElementById('s1').classList.add('active');
   const now = new Date();
   const mo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('monthPicker').value = mo;
   state.month = mo;
+  // Lo que se ve de lo borrado: saldo, recuento y Libro, el histórico del arqueo y las tablas
+  document.getElementById('saldoInicial').value = '0';
+  ['arqueoMonedas','arqueoCambio','arqueoBilletes'].forEach(id => { document.getElementById(id).value = ''; });
+  restoreLibro();
+  renderArqueoHistorico();
+  recalcAll();   // arqueo a cero y Resumen/Cajas/exportar vacíos
+  localStorage.removeItem(STORAGE_KEY);   // restoreLibro guarda al fijar los signos: se deja sin nada guardado
   toast('🗑 Datos borrados');
 }
 
