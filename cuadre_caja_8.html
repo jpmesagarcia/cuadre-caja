@@ -2444,8 +2444,33 @@ function loadCaixa(evt) {
 }
 
 // ─── Rebuild day list ──────────────────────────────────────────────────────
+// Un mes sin días de Farmatic (o sin Farmatic cargado) no tiene resumen, cajas ni nada que exportar: se
+// vacían las vistas en vez de dejar las tablas del mes anterior y el botón de exportar activo (E-15).
+function mostrarMesSinDatos() {
+  const sinFarmatic = Object.keys(state.farmatic).length === 0;
+  [['emptyResumen','resumenTable','el resumen'], ['emptyCajas','cajasTable','el libro de cajas']].forEach(([vacio, tabla, destino]) => {
+    const el = document.getElementById(vacio);
+    const p = el.querySelector('p');
+    if (p) p.innerHTML = sinFarmatic
+      ? 'Carga primero el Excel de Farmatic<br>para ver ' + destino + '.'
+      : 'Este mes no tiene datos de Farmatic.<br>Elige otro mes o carga su Excel.';
+    el.style.display = 'block';
+    document.getElementById(tabla).style.display = 'none';
+  });
+  document.getElementById('btnExport').disabled = true;
+}
+
 function rebuildDays() {
-  if (Object.keys(state.farmatic).length === 0) return;
+  if (Object.keys(state.farmatic).length === 0) {
+    // Sin Farmatic (p. ej. tras «Borrar → Datos Farmatic»): no se deja a la vista nada de antes (E-15)
+    state.daysInMonth = []; state.selectedDay = null;
+    document.getElementById('chipDays').textContent = '0 días';
+    document.getElementById('emptyEfectivo').style.display = 'block';
+    document.getElementById('dayGridWrap').style.display = 'none';
+    document.getElementById('dayDetail').style.display = 'none';
+    recalcAll();
+    return;
+  }
 
   // Auto-detect month from first date if not set
   const allDates = Object.keys(state.farmatic).sort();
@@ -2471,6 +2496,10 @@ function rebuildDays() {
   }
   document.getElementById('emptyEfectivo').style.display = 'none';
   document.getElementById('dayGridWrap').style.display = 'block';
+  if (state.daysInMonth.length === 0 && state.selectedDay) {   // el día abierto era de otro mes (E-15)
+    state.selectedDay = null;
+    document.getElementById('dayDetail').style.display = 'none';
+  }
 
   // Init day state for any new days
   state.daysInMonth.forEach(ds => {
@@ -4056,7 +4085,7 @@ function updateDaySummary(ds) {
 // ─── Recalc all (Resumen + Cajas) ─────────────────────────────────────────
 function recalcAll() {
   renderArqueo();   // el arqueo se calcula aunque el mes no tenga días (saldo y Libro cuentan)
-  if (state.daysInMonth.length === 0) return;
+  if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }
   renderResumen();
   renderCajas();
   checkExportReady();
@@ -4117,6 +4146,7 @@ function getLibroGasto() {
 }
 
 function renderCajas() {
+  if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }   // E-15
   const tb = document.getElementById('tCajas');
   const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
   let html = `<thead><tr>
@@ -4247,6 +4277,10 @@ function exportExcel() {
 
 // ─── Export Excel ──────────────────────────────────────────────────────────
 function exportExcelCore() {
+  if (!state.month || state.daysInMonth.length === 0) {   // E-15: nunca se exporta un mes sin datos
+    toast('⚠️ Este mes no tiene datos de Farmatic: no hay nada que exportar');
+    return;
+  }
   const wb = XLSX.utils.book_new();
   wb.Workbook = wb.Workbook || {};
   wb.Workbook.WBProps = wb.Workbook.WBProps || {};
