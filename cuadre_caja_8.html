@@ -758,6 +758,7 @@
   }
   .lucia-add-row select { min-width: 180px; }
   .lucia-add-row input[type=number] { width: 100px; font-family: 'DM Mono', monospace; }
+  .lucia-add-row input[type=checkbox] { padding: 0; margin-right: 4px; vertical-align: middle; }
   .lucia-add-row select:focus, .lucia-add-row input:focus { outline: none; border-color: var(--teal); }
   .lucia-ticket-list { display: flex; flex-direction: column; gap: 5px; }
   .lucia-ticket {
@@ -1111,36 +1112,11 @@
               <span class="lucia-total" id="luciaTotal">0,00 €</span>
             </h4>
             <div class="lucia-add-row">
-              <select id="luciaClient">
-                <option value="">— Cliente —</option>
-                <option>Alex Muñoz</option>
-                <option>Amanda Yonh</option>
-                <option>Ana Argüelles</option>
-                <option>Ana Huerta</option>
-                <option>Ana Taibo</option>
-                <option>Beatriz de Cominges</option>
-                <option>Blanca Huerta</option>
-                <option>Cecilia Pardo</option>
-                <option>Colegio Laude</option>
-                <option>Enrique Huerta</option>
-                <option>Fabiola Guerrero</option>
-                <option>Fernando Dominguez García</option>
-                <option>Fernando Huerta</option>
-                <option>Francisco Fernandez Daza</option>
-                <option>Gema Huerta</option>
-                <option>Hacienda</option>
-                <option>Ibone Huerta</option>
-                <option>Inés García Paine</option>
-                <option>Laura Pastor</option>
-                <option>Lucía Lovera Guerrero</option>
-                <option>Miguel Asensio</option>
-                <option>Miriam Torrens</option>
-                <option>Paloma Carmona</option>
-                <option>Pilar González</option>
-                <option>Sebastián del Rey</option>
-                <option value="__new__">✏️ Nuevo cliente...</option>
-              </select>
+              <select id="luciaClient"></select>
               <input type="text" id="luciaClientNew" placeholder="Nombre del cliente" style="display:none;min-width:160px">
+              <label id="luciaEntidadWrap" style="display:none;font-size:.78rem;color:var(--muted);cursor:pointer">
+                <input type="checkbox" id="luciaEntidad"> Entidad (paga por transferencia)
+              </label>
               <input type="number" id="luciaAmount" placeholder="Importe €" step="0.01" min="0">
               <select id="luciaPago" style="font-size:.78rem;padding:6px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:'Jost',sans-serif">
                 <option value="efectivo">💵 Efectivo</option>
@@ -1748,12 +1724,17 @@ function getTicketsDia(ds) {
   return state.pendientes.filter(p => p.fecha === ds);
 }
 
-function agregarPendiente({ fecha, cliente, importe, pago }) {
-  const c = asegurarCliente(cliente);
+// Cómo paga por defecto un cliente: las entidades (Hacienda, Colegio Laude…) por transferencia, el resto en efectivo.
+function pagoPorDefecto(c) {
+  return c && c.entidad ? 'transferencia' : 'efectivo';
+}
+
+function agregarPendiente({ fecha, cliente, importe, pago, entidad }) {
+  const c = asegurarCliente(cliente, entidad);
   const p = {
     id: nuevoIdPendiente(), fecha, cliente: c.nombre, importe,
     origen: c.entidad ? 'entidad' : 'lucia',
-    pago: pago || (c.entidad ? 'transferencia' : 'efectivo'),
+    pago: pago || pagoPorDefecto(c),
     estado: 'pendiente', fechaCobro: null, ref: '', nota: ''
   };
   state.pendientes.push(p);
@@ -4124,7 +4105,31 @@ function getLuciaTotal(ds) {
   return Math.round(getTicketsDia(ds).reduce((s,t) => s+(t.importe||0), 0)*100)/100;
 }
 
+// Rellena el desplegable de clientes con los guardados (state.clientes) y conserva la selección si sigue existiendo.
+function renderClientesSelect() {
+  const sel = document.getElementById('luciaClient'); if (!sel) return;
+  const actual = sel.value;
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  sel.innerHTML = '<option value="">— Cliente —</option>' +
+    state.clientes.map(c => `<option value="${esc(c.nombre)}">${esc(c.nombre)}${c.entidad ? ' 🏦' : ''}</option>`).join('') +
+    '<option value="__new__">✏️ Nuevo cliente...</option>';
+  sel.value = [...sel.options].some(o => o.value === actual) ? actual : '';
+}
+
+// El «pago» propuesto sigue al cliente elegido (entidad → transferencia); se puede cambiar a mano antes de añadir.
+function sincronizarPagoCliente() {
+  const sel = document.getElementById('luciaClient');
+  const pag = document.getElementById('luciaPago');
+  const nuevo = sel.value === '__new__';
+  document.getElementById('luciaClientNew').style.display = nuevo ? 'block' : 'none';
+  document.getElementById('luciaEntidadWrap').style.display = nuevo ? 'inline-block' : 'none';
+  if (!pag) return;
+  if (nuevo) pag.value = document.getElementById('luciaEntidad').checked ? 'transferencia' : 'efectivo';
+  else pag.value = pagoPorDefecto(buscarCliente(sel.value));
+}
+
 function renderLuciaSection(ds) {
+  renderClientesSelect();
   const tickets = getTicketsDia(ds);
   const total = getLuciaTotal(ds);
   document.getElementById('luciaTotal').textContent = fmt(total)+' €';
@@ -4134,7 +4139,7 @@ function renderLuciaSection(ds) {
   } else {
     list.innerHTML = tickets.map(t => `
       <div class="lucia-ticket">
-        <span class="t-client">${t.cliente}</span>
+        <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${t.cliente}</span>
         <span class="t-amount">${fmt(t.importe)} €</span>
         <button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>
       </div>`).join('');
@@ -4148,25 +4153,25 @@ function addLuciaTicket() {
   const ds = state.selectedDay; if (!ds) return;
   const sel = document.getElementById('luciaClient');
   const newInp = document.getElementById('luciaClientNew');
-  let client = sel.value === '__new__' ? newInp.value.trim() : sel.value;
+  const nuevo = sel.value === '__new__';
+  let client = nuevo ? newInp.value.trim() : sel.value;
   const amount = parseFloat(document.getElementById('luciaAmount').value)||0;
-  const pago   = document.getElementById('luciaPago')?.value || 'efectivo';
+  let pago     = document.getElementById('luciaPago')?.value || 'efectivo';
   if (!client || client === '') { alert('Selecciona o escribe el nombre del cliente'); return; }
   if (amount <= 0) { alert('Introduce un importe válido'); return; }
 
-  // If new client, add to select options
-  if (sel.value === '__new__' && client) {
-    const opt = document.createElement('option');
-    opt.value = client; opt.textContent = client;
-    sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+  // Cliente nuevo: queda guardado para la próxima vez (E-29). Si el nombre ya existía se usa ese, con su forma de pago.
+  const existente = nuevo ? buscarCliente(client) : null;
+  if (existente) { client = existente.nombre; pago = pagoPorDefecto(existente); toast('Ya existía «' + client + '»: se ha usado ese cliente'); }
+  const entidad = nuevo && !existente && document.getElementById('luciaEntidad').checked;
+  agregarPendiente({fecha: ds, cliente: client, importe: amount, pago, entidad});
+  if (nuevo) {
+    newInp.value = ''; document.getElementById('luciaEntidad').checked = false;
+    renderClientesSelect();
     sel.value = client;
-    newInp.style.display = 'none';
-    newInp.value = '';
   }
-
-  agregarPendiente({fecha: ds, cliente: client, importe: amount, pago});
   document.getElementById('luciaAmount').value = '';
-  const pagSel = document.getElementById('luciaPago'); if (pagSel) pagSel.value = 'efectivo';
+  sincronizarPagoCliente();
   renderLuciaSection(ds);
   dayChanged();
   saveState();
@@ -4180,12 +4185,9 @@ function removeLuciaTicket(id) {
   saveState();
 }
 
-// Show/hide new client input
+// Cambiar de cliente (o marcar «Entidad») ajusta el pago propuesto y muestra/oculta los campos del cliente nuevo
 document.addEventListener('change', e => {
-  if (e.target.id === 'luciaClient') {
-    document.getElementById('luciaClientNew').style.display =
-      e.target.value === '__new__' ? 'block' : 'none';
-  }
+  if (e.target.id === 'luciaClient' || e.target.id === 'luciaEntidad') sincronizarPagoCliente();
 });
 
 function getDayEfectivo(ds) {
