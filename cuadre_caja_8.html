@@ -1201,21 +1201,22 @@
 
       <!-- Saldos -->
       <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap">
-        <div class="saldo-inicial" style="flex:1;min-width:200px">
+        <div class="saldo-inicial" style="flex:1;min-width:200px;flex-direction:column;align-items:stretch;gap:4px">
           <label style="font-size:.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500;display:block;margin-bottom:6px">
             📅 Cierre mes anterior
           </label>
           <div id="cierreAnteriorVal" style="font-family:'DM Mono',monospace;font-size:1.2rem;font-weight:600;color:var(--teal);padding:8px 0">—</div>
-          <span style="font-size:.72rem;color:var(--muted)">Calculado automáticamente</span>
+          <span id="cierreAnteriorOrigen" style="font-size:.72rem;color:var(--muted)">Calculado automáticamente</span>
         </div>
-        <div class="saldo-inicial" style="flex:1;min-width:200px">
+        <div class="saldo-inicial" style="flex:1;min-width:200px;flex-direction:column;align-items:stretch;gap:4px">
           <label style="font-size:.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500;display:block;margin-bottom:6px">
             💰 Saldo inicial este mes
           </label>
-          <input type="number" id="saldoInicial" value="0" step="0.01"
+          <input type="number" id="saldoInicial" placeholder="0,00" step="0.01"
             style="font-family:'DM Mono',monospace;font-size:1.1rem;font-weight:600;width:100%;background:var(--surface2);border:1.5px solid var(--border);color:var(--text);padding:8px 12px;border-radius:7px"
-            oninput="recalcAll(); saveSaldoMes(); saveState()" onfocus="if(this.value=='0')this.value=''" onblur="if(this.value==='')this.value='0'; saveSaldoMes(); saveState()">
-          <span style="font-size:.72rem;color:var(--muted)">Introdúcelo manualmente</span>
+            oninput="saldoEditado()" onblur="refrescarSaldoInicial(true)">
+          <span id="saldoOrigen" style="font-size:.72rem;color:var(--muted);display:block;margin-top:4px">Introdúcelo manualmente</span>
+          <button type="button" id="saldoUsarHeredado" class="btn-ghost dark" style="display:none;margin-top:6px;font-size:.72rem;align-self:flex-start" onclick="usarSaldoHeredado()"></button>
         </div>
       </div>
 
@@ -1566,6 +1567,7 @@ function buildPersistedState() {
     libro:    state.libro,
     arqueoPorMes: state.arqueoPorMes,
     arqueoHistorico: state.arqueoHistorico,
+    esperadoPorMes: state.esperadoPorMes,
     saldosPorMes: state.saldosPorMes,
     libroPorMes: state.libroPorMes,
     formsData: state.formsData
@@ -1681,14 +1683,10 @@ function loadState() {
     state.month       = saved.month       || null;
     state.arqueoPorMes    = saved.arqueoPorMes    || migrarArqueoLegacy(saved) || {};
     state.arqueoHistorico = saved.arqueoHistorico || [];
+    state.esperadoPorMes  = saved.esperadoPorMes  || {};
     state.saldosPorMes    = saved.saldosPorMes    || {};
   state.libroPorMes     = saved.libroPorMes     || {};
   state.formsData       = saved.formsData       || {};
-    // Restaurar saldo del mes actual desde saldosPorMes
-    if (state.month && state.saldosPorMes?.[state.month] !== undefined) {
-      const el = document.getElementById('saldoInicial');
-      if (el) el.value = state.saldosPorMes[state.month];
-    }
     return Object.keys(state.farmatic).length > 0;
   } catch(e) {
     console.warn('No se pudo restaurar:', e);
@@ -1813,7 +1811,7 @@ function validarCopiaCompleta(o) {
     return 'La copia es de una versión más nueva de la app (esquema ' + o.schemaVersion + '; esta app entiende hasta el ' + BACKUP_SCHEMA + '). Actualiza la app antes de restaurarla.';
   const d = o.data;
   if (!esObj(d)) return 'La copia no contiene datos.';
-  for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes'])
+  for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   for (const k of ['caixaRawRows', 'arqueoHistorico'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
@@ -1983,7 +1981,7 @@ function estadoPersistidoVacio() {
   libro.custom = [];
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
-    arqueoPorMes: {}, arqueoHistorico: [], saldosPorMes: {}, libroPorMes: {}, formsData: {}
+    arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {}, formsData: {}
   };
 }
 
@@ -2008,7 +2006,7 @@ function clearState() {
   document.getElementById('monthPicker').value = mo;
   state.month = mo;
   // Lo que se ve de lo borrado: saldo, recuento y Libro, el histórico del arqueo y las tablas
-  document.getElementById('saldoInicial').value = '0';
+  refrescarSaldoInicial(true);
   ['arqueoMonedas','arqueoCambio','arqueoBilletes'].forEach(id => { document.getElementById(id).value = ''; });
   restoreLibro();
   renderArqueoHistorico();
@@ -2028,7 +2026,8 @@ const state = {
   selectedDay: null,
   arqueoPorMes: {},   // 'YYYY-MM' -> {monedas, cambio, billetes}: el recuento tecleado de cada mes (E-32)
   arqueoHistorico: [],
-  saldosPorMes: {},
+  esperadoPorMes: {}, // 'YYYY-MM' -> {valor, fecha}: efectivo esperado en caja al cierre de cada mes, con los datos de ese mes (E-14)
+  saldosPorMes: {},   // saldo inicial TECLEADO a mano; el heredado no se guarda aquí, se calcula (getSaldoInicial)
   formsData: {},
   defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
@@ -2073,10 +2072,12 @@ window.onload = () => {
     rebuildDays();
     restoreLibro();
     restoreArqueo();
+    refrescarSaldoInicial(true);
     toast('💾 Datos restaurados del último uso');
   } else {
     document.getElementById('monthPicker').value = mo;
     state.month = mo;
+    refrescarSaldoInicial(true);
   }
   actualizarAvisoCopia();
   avisarSiRestaurada();
@@ -2106,8 +2107,6 @@ function cambiarMes(newMonth) {
   if (picker) picker.value = newMonth;
   if (state.month === newMonth) return false;   // mismo mes: no se toca ni el Libro ni el saldo
   if (state.month) {
-    // El saldo ya se guarda al teclearlo; aquí solo se asegura, sin inventar un 0 en un mes que nadie ha tocado
-    if (state.saldosPorMes?.[state.month] !== undefined || parseFloat(document.getElementById('saldoInicial').value)) saveSaldoMes();
     // Guardar libro del mes actual ANTES de resetearlo
     if (!state.libroPorMes) state.libroPorMes = {};
     state.libroPorMes[state.month] = JSON.parse(JSON.stringify(state.libro || {}));
@@ -2123,10 +2122,8 @@ function cambiarMes(newMonth) {
     state.libro.custom = [];
   }
   restoreLibro();
-  // Restaurar el saldo de este mes si estaba guardado
-  const savedSaldo = state.saldosPorMes?.[newMonth];
-  const el = document.getElementById('saldoInicial');
-  if (el) el.value = savedSaldo !== undefined ? savedSaldo : '';
+  // Saldo del mes que se abre: el tecleado a mano o el heredado del mes anterior (E-14)
+  refrescarSaldoInicial(true);
   volcarArqueoEnInputs(newMonth);   // el recuento es de cada mes: el del anterior no se arrastra (E-32)
   return true;
 }
@@ -2929,7 +2926,7 @@ function renderStats() {
   const arqueoMes = getArqueoMes(state.month);
   if (arqueoMes && (arqueoMes.monedas||arqueoMes.cambio||arqueoMes.billetes)) {
     const totalFisico = Math.round((arqueoMes.monedas+arqueoMes.cambio+arqueoMes.billetes)*100)/100;
-    const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+    const saldo0 = getSaldoInicial(state.month).valor;
     let acumEsp = saldo0;
     state.daysInMonth.forEach(ds => {
       acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
@@ -3401,14 +3398,9 @@ function handleLuciaTicketsFile(evt) {
 // Cálculo del arqueo: recuento tecleado frente al efectivo esperado de los datos del mes. Es el único sitio
 // que lo calcula para lo que se VE (renderArqueo) y para lo que se GUARDA (saveArqueoSnapshot), de modo que
 // nunca pueden diferir (E-13). Estadísticas conserva su propia copia de la fórmula: es E-38 (fase 5).
-function calcArqueo() {
-  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
-  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
-  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
-  const hayRecuento = ['arqueoMonedas','arqueoCambio','arqueoBilletes']
-    .some(id => document.getElementById(id).value !== '');
-  const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
-
+// Efectivo esperado en caja del mes actual: saldo inicial + Cajas (efectivo − cajero − gastos) + Libro, menos
+// los tickets de Lucía (salen por otra vía). Lo usan el arqueo y el registro del esperado de cada mes.
+function calcEfectivoActivo() {
   // Total tickets Lucía del mes
   let totalLucia = 0;
   state.daysInMonth.forEach(ds => {
@@ -3418,7 +3410,7 @@ function calcArqueo() {
   });
 
   // Efectivo esperado = acumulado Cajas + Libro
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  const saldo0 = getSaldoInicial(state.month).valor;
   let acumEsperado = saldo0;
   state.daysInMonth.forEach(ds => {
     const ef     = getDayEfectivo(ds);
@@ -3431,6 +3423,18 @@ function calcArqueo() {
 
   // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
   const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
+  return {saldo0, acumEsperado, totalLucia, esperadoNeto};
+}
+
+function calcArqueo() {
+  const monedas  = parseFloat(document.getElementById('arqueoMonedas').value)||0;
+  const cambio   = parseFloat(document.getElementById('arqueoCambio').value)||0;
+  const billetes = parseFloat(document.getElementById('arqueoBilletes').value)||0;
+  const hayRecuento = ['arqueoMonedas','arqueoCambio','arqueoBilletes']
+    .some(id => document.getElementById(id).value !== '');
+  const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
+
+  const {acumEsperado, totalLucia, esperadoNeto} = calcEfectivoActivo();
 
   // Diferencia = físico total − esperado neto
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
@@ -3441,6 +3445,7 @@ function calcArqueo() {
 // efectivo, los tickets de Lucía, los gastos, el saldo, el Libro o el mes), no solo al teclear un recuento.
 function renderArqueo() {
   const c = calcArqueo();
+  registrarEsperadoMes(c.esperadoNeto);
   const etiqueta = document.getElementById('arqueoMesEtiqueta');
   if (etiqueta) etiqueta.textContent = state.month ? nombreMes(state.month) : 'este mes';
   document.getElementById('arqueoTotal').textContent       = fmt(c.totalFisico)+' €';
@@ -3565,13 +3570,102 @@ function renderArqueoHistorico() {
 
 
 
-function saveSaldoMes() {
+// ─── Saldo inicial: tecleado a mano o heredado del mes anterior (E-14, EV-03) ──
+// El efectivo esperado de cada mes se apunta (esperadoPorMes) cada vez que se recalcula, porque al cargar el
+// Farmatic del mes siguiente los días del anterior se borran y ya no se podría calcular.
+function registrarEsperadoMes(esperadoNeto) {
+  if (!state.month || state.daysInMonth.length === 0) return;   // sin datos del mes no hay esperado que apuntar
+  const previo = state.esperadoPorMes?.[state.month];
+  if (previo && previo.valor === esperadoNeto) return;
+  if (!state.esperadoPorMes) state.esperadoPorMes = {};
+  state.esperadoPorMes[state.month] = {valor: esperadoNeto, fecha: toDateStr(new Date())};
+  saveState();
+}
+
+// Lo que deja el mes anterior: su recuento guardado más reciente (es el dinero que de verdad había) o, si no
+// hay, su efectivo esperado. null si no hay ninguno de los dos.
+function calcSaldoHeredado(month) {
+  if (!month) return null;
+  const prev = getPrevMonth(month);
+  const rec = (state.arqueoHistorico || [])
+    .filter(h => h.month === prev && typeof h.totalFisico === 'number')
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+  if (rec) return {valor: rec.totalFisico, origen: 'recuento', mes: prev, fecha: rec.date};
+  const esp = state.esperadoPorMes?.[prev];
+  if (esp && typeof esp.valor === 'number') return {valor: esp.valor, origen: 'esperado', mes: prev, fecha: esp.fecha};
+  return null;
+}
+
+// Saldo inicial de un mes y de dónde sale: lo tecleado a mano, si lo hay; si no, el heredado; si no, 0.
+function getSaldoInicial(month) {
+  if (!month) return {valor: 0, origen: 'ninguno', heredado: null};
+  const heredado = calcSaldoHeredado(month);
+  const manual = state.saldosPorMes?.[month];
+  if (manual !== undefined) return {valor: Number(manual) || 0, origen: 'manual', heredado};
+  if (heredado) return {valor: heredado.valor, origen: heredado.origen, heredado};
+  return {valor: 0, origen: 'ninguno', heredado: null};
+}
+
+function fechaCorta(ds) {
+  return ds ? new Date(ds + 'T00:00:00').toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'}) : '';
+}
+
+function textoOrigenHeredado(h) {
+  return h.origen === 'recuento'
+    ? 'del recuento de ' + nombreMes(h.mes) + ' (guardado el ' + fechaCorta(h.fecha) + ')'
+    : 'del efectivo esperado de ' + nombreMes(h.mes) + ' (calculado el ' + fechaCorta(h.fecha) + ')';
+}
+
+// Teclear el saldo lo fija a mano para ese mes; dejarlo vacío vuelve al heredado.
+function saldoEditado() {
   if (!state.month) return;
   const raw = document.getElementById('saldoInicial').value;
   const v = parseFloat(raw);
   if (!state.saldosPorMes) state.saldosPorMes = {};
-  if (!isNaN(v)) state.saldosPorMes[state.month] = v;
+  if (raw === '' || isNaN(v)) delete state.saldosPorMes[state.month];
+  else state.saldosPorMes[state.month] = v;
+  refrescarSaldoInicial();
+  recalcAll();
+  saveState();
 }
+
+function usarSaldoHeredado() {
+  if (!state.month) return;
+  delete state.saldosPorMes?.[state.month];
+  refrescarSaldoInicial(true);
+  recalcAll();
+  saveState();
+}
+
+// Pinta el saldo inicial del mes, de dónde sale y lo que deja el mes anterior. El valor del campo solo se
+// escribe si no se está tecleando en él (o si se fuerza, al salir del campo).
+function refrescarSaldoInicial(forzar) {
+  const el = document.getElementById('saldoInicial');
+  if (!el || !state.month) return;
+  const s = getSaldoInicial(state.month);
+  const h = s.heredado;
+  if (forzar || document.activeElement !== el) el.value = s.origen === 'ninguno' ? '' : s.valor;
+
+  const prev = nombreMes(getPrevMonth(state.month));
+  let origen;
+  if (s.origen === 'manual') origen = 'Introducido a mano';
+  else if (s.origen === 'ninguno') origen = 'Sin recuento ni cálculo de ' + prev + ': se parte de 0 €. Puedes teclearlo.';
+  else origen = 'Heredado ' + textoOrigenHeredado(h);
+  const distinto = s.origen === 'manual' && h && h.valor !== s.valor;
+  if (distinto) origen += ' · Heredado: ' + fmt(h.valor) + ' € ' + textoOrigenHeredado(h);
+  document.getElementById('saldoOrigen').textContent = origen;
+  document.getElementById('saldoUsarHeredado').style.display = distinto ? 'inline-block' : 'none';
+  if (distinto) document.getElementById('saldoUsarHeredado').textContent = 'Usar el heredado (' + fmt(h.valor) + ' €)';
+
+  const val = document.getElementById('cierreAnteriorVal');
+  const ori = document.getElementById('cierreAnteriorOrigen');
+  if (val) {
+    val.textContent = h ? fmt(h.valor) + ' €' : '—';
+    val.style.color = h ? 'var(--teal)' : 'var(--muted)';
+  }
+  if (ori) ori.textContent = h ? 'Es el saldo ' + textoOrigenHeredado(h) : 'Sin recuento ni cálculo de ' + prev;
+}
+
 
 function restoreSaldoMes(month) {
   if (!state.saldosPorMes) return;
@@ -3626,7 +3720,7 @@ function calcCierreMes(month) {
   // Calcula el efectivo acumulado final del mes (última fila de Cajas)
   const days = Object.keys(state.farmatic).filter(ds => ds.startsWith(month)).sort();
   if (days.length === 0) return null;
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  const saldo0 = getSaldoInicial(state.month).valor;
   let acum = saldo0;
   days.forEach(ds => {
     const ef     = getDayEfectivo(ds);
@@ -4202,7 +4296,7 @@ function getLibroGasto() {
 function renderCajas() {
   if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }   // E-15
   const tb = document.getElementById('tCajas');
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  const saldo0 = getSaldoInicial(state.month).valor;
   let html = `<thead><tr>
     <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos</th><th>Efectivo total</th>
   </tr></thead><tbody>`;
@@ -4342,7 +4436,7 @@ function exportExcelCore() {
   const [y,m] = state.month.split('-').map(Number);
   const monthName = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m];
   const monthShort = monthName.slice(0,3).toLowerCase();
-  const saldo0 = parseFloat(document.getElementById('saldoInicial').value)||0;
+  const saldo0 = getSaldoInicial(state.month).valor;
 
   // ── helpers ──
   const n2 = v => Math.round((v||0)*100)/100;
