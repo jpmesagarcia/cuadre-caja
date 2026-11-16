@@ -720,6 +720,19 @@
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
+  .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:6px 8px; border-radius:5px; font-family:'Jost',sans-serif; font-size:.8rem;
+  }
+  .pend-tabla td.num { text-align:right; font-family:'DM Mono',monospace; white-space:nowrap; }
+  .pend-tabla input.nota { width:100%; min-width:140px; }
+  .pend-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.7rem; font-weight:500; background:var(--teal-lt); color:var(--teal); }
+  .pend-badge.pen { background:#fdf3dc; color:#8a6410; }
+  body.dark .pend-badge.pen { background:#3a3118; color:#e6c36a; }
+  .pend-del { background:none; border:none; cursor:pointer; color:var(--muted2); font-size:.9rem; padding:0 6px; }
+  .pend-del:hover { color:var(--err); }
+  .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
   .seg-diff-pos { color:var(--teal); }
@@ -1019,7 +1032,7 @@
         ⬇ Exportar Excel
       </button>
       <div class="copia-estado" id="copiaEstado"></div>
-      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupCompleto()" title="Descarga un fichero JSON con todos los datos de la app: Farmatic, banco, efectivo, gastos, libro, saldos, arqueo y tickets de Lucía">
+      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupCompleto()" title="Descarga un fichero JSON con todos los datos de la app: Farmatic, banco, efectivo, gastos, libro, saldos, arqueo y pendientes de cobro">
         💾 Copia completa (JSON)
       </button>
       <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="document.getElementById('restoreFile').click()" title="Sustituye los datos actuales por los de una copia completa descargada antes">
@@ -1043,6 +1056,7 @@
       <button class="tab-btn" onclick="showTab('resumen')">📊 Resumen</button>
       <button class="tab-btn" onclick="showTab('cajas')">🗃 Cajas</button>
       <button class="tab-btn" onclick="showTab('libro')">📒 Libro</button>
+      <button class="tab-btn" onclick="showTab('pendientes'); renderPendientes()">🧾 Pendientes</button>
       <button class="tab-btn" onclick="showTab('stats')">📈 Estadísticas</button>
       <button class="tab-btn" onclick="showTab('arqueo')">🏦 Arqueo</button>
       <button class="tab-btn" onclick="showTab('seguimiento'); renderSeguimiento()">📋 Seguimiento</button>
@@ -1431,6 +1445,47 @@
       </div>
     </div>
 
+    <!-- TAB: Pendientes de cobro -->
+    <div class="tab-pane" id="tab-pendientes">
+      <div class="section-head">
+        <h2>Pendientes de cobro</h2>
+        <span class="chip" id="pendChip">—</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:16px">
+        Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
+        Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
+        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Marcarlos como cobrados llegará con la
+        liquidación con Lucía y la conciliación con el banco.
+      </p>
+      <div class="stats-grid" id="pendTotales"></div>
+      <div class="pend-filtros">
+        <select id="pendEstado" onchange="renderPendientes()">
+          <option value="pendiente">Pendientes</option>
+          <option value="cobrado">Cobrados</option>
+          <option value="todos">Todos</option>
+        </select>
+        <select id="pendCircuito" onchange="renderPendientes()">
+          <option value="todos">Los dos circuitos</option>
+          <option value="efectivo">💵 Efectivo (vía Lucía)</option>
+          <option value="transferencia">🏦 Transferencia</option>
+        </select>
+        <select id="pendMes" onchange="renderPendientes()"></select>
+        <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
+      </div>
+      <div id="pendLista"></div>
+      <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal);margin:26px 0 6px">Clientes</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+        Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
+        Cambiarlo no toca los tickets ya apuntados.
+      </p>
+      <div id="pendClientes"></div>
+      <div class="pend-addcli">
+        <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
+        <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
+        <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
+      </div>
+    </div>
+
     <!-- TAB: Seguimiento empleadas -->
     <div class="tab-pane" id="tab-seguimiento">
       <div class="section-head">
@@ -1747,6 +1802,120 @@ function eliminarPendiente(id) {
   if (i < 0 || state.pendientes[i].estado === 'cobrado') return false;
   state.pendientes.splice(i, 1);
   return true;
+}
+
+// ─── Pestaña Pendientes ────────────────────────────────────────────────────
+const pendFiltro = { mes: 'todos' };   // solo de pantalla: no se guarda
+const escHtml = t => (t == null ? '' : t.toString()).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fechaDMA = ds => ds ? ds.split('-').reverse().join('/') : '';
+const sumar2 = lista => Math.round(lista.reduce((a, p) => a + (p.importe || 0), 0) * 100) / 100;
+
+function renderPendientes() {
+  const tot = document.getElementById('pendTotales'); if (!tot) return;
+  const abiertos = state.pendientes.filter(p => p.estado !== 'cobrado');
+  const ef = abiertos.filter(p => p.pago === 'efectivo');
+  const tr = abiertos.filter(p => p.pago === 'transferencia');
+  const masAntiguo = l => l.length ? ' · el más antiguo, ' + fechaCorta(l.map(p => p.fecha).sort()[0]) : '';
+  tot.innerHTML =
+    `<div class="kpi-card kpi-accent"><div class="kpi-label">💵 Pendiente en efectivo · vía Lucía</div>
+       <div class="kpi-value teal">${fmt(sumar2(ef))} €</div>
+       <div class="kpi-sub"><span>${ef.length}</span> ticket${ef.length === 1 ? '' : 's'}${masAntiguo(ef)}</div></div>` +
+    `<div class="kpi-card kpi-gold"><div class="kpi-label">🏦 Pendiente por transferencia</div>
+       <div class="kpi-value warn">${fmt(sumar2(tr))} €</div>
+       <div class="kpi-sub"><span>${tr.length}</span> ticket${tr.length === 1 ? '' : 's'}${masAntiguo(tr)}</div></div>` +
+    `<div class="kpi-card"><div class="kpi-label">Total pendiente</div>
+       <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
+       <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
+  document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
+
+  // meses con apuntes (por fecha de la venta)
+  const selMes = document.getElementById('pendMes');
+  const meses = [...new Set(state.pendientes.map(p => p.fecha.slice(0, 7)))].sort().reverse();
+  const actual = selMes.value || pendFiltro.mes;
+  selMes.innerHTML = '<option value="todos">Todos los meses</option>' + meses.map(m => `<option value="${m}">${nombreMes(m)}</option>`).join('');
+  selMes.value = meses.includes(actual) ? actual : 'todos';
+  pendFiltro.mes = selMes.value;
+
+  const fe = document.getElementById('pendEstado').value, fc = document.getElementById('pendCircuito').value;
+  const ft = normNombre(document.getElementById('pendTexto').value);
+  const lista = state.pendientes
+    .filter(p => fe === 'todos' || (fe === 'cobrado') === (p.estado === 'cobrado'))
+    .filter(p => fc === 'todos' || p.pago === fc)
+    .filter(p => pendFiltro.mes === 'todos' || p.fecha.startsWith(pendFiltro.mes))
+    .filter(p => !ft || normNombre(p.cliente).includes(ft))
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+
+  const el = document.getElementById('pendLista');
+  if (!lista.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px"><p>' + (state.pendientes.length ? 'Ningún apunte con estos filtros.' : 'Todavía no hay tickets pendientes.') + '</p></div>';
+  } else {
+    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th><th>Pago</th><th>Estado</th><th>Nota</th><th></th></tr></thead><tbody>' +
+      lista.map(p => {
+        const cobrado = p.estado === 'cobrado';
+        return `<tr>
+          <td class="mono">${fechaDMA(p.fecha)}</td>
+          <td>${p.origen === 'entidad' ? '🏦 ' : ''}${escHtml(p.cliente)}</td>
+          <td class="num">${fmt(p.importe)} €</td>
+          <td><select ${cobrado ? 'disabled' : ''} onchange="pendCambiarPago('${p.id}', this.value)">
+                <option value="efectivo"${p.pago === 'efectivo' ? ' selected' : ''}>💵 Efectivo</option>
+                <option value="transferencia"${p.pago === 'transferencia' ? ' selected' : ''}>🏦 Transferencia</option></select></td>
+          <td>${cobrado ? '<span class="pend-badge">Cobrado' + (p.fechaCobro ? ' ' + fechaDMA(p.fechaCobro) : '') + '</span>' : '<span class="pend-badge pen">Pendiente</span>'}</td>
+          <td><input type="text" class="nota" maxlength="120" value="${escHtml(p.nota)}" placeholder="—" onchange="pendCambiarNota('${p.id}', this.value)"></td>
+          <td>${cobrado ? '' : `<button class="pend-del" title="Borrar" onclick="pendBorrar('${p.id}')">✕</button>`}</td></tr>`;
+      }).join('') +
+      `<tr style="background:var(--teal-lt);font-weight:700"><td colspan="2">TOTAL (${lista.length})</td><td class="num">${fmt(sumar2(lista))} €</td><td colspan="4"></td></tr></tbody></table>`;
+  }
+
+  // clientes
+  document.getElementById('pendClientes').innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Cliente</th><th>Entidad (transferencia)</th><th style="text-align:right">Pendiente</th></tr></thead><tbody>' +
+    state.clientes.map((c, i) => {
+      const deben = abiertos.filter(p => normNombre(p.cliente) === normNombre(c.nombre));
+      return `<tr><td>${escHtml(c.nombre)}</td>
+        <td><input type="checkbox" ${c.entidad ? 'checked' : ''} onchange="pendToggleEntidad(${i}, this.checked)"></td>
+        <td class="num">${deben.length ? fmt(sumar2(deben)) + ' €' : '—'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function pendCambiarPago(id, pago) {
+  const p = state.pendientes.find(x => x.id === id);
+  if (!p || p.estado === 'cobrado' || (pago !== 'efectivo' && pago !== 'transferencia')) return;
+  p.pago = pago;
+  saveState(); renderPendientes();
+}
+
+function pendCambiarNota(id, nota) {
+  const p = state.pendientes.find(x => x.id === id); if (!p) return;
+  p.nota = nota.trim();
+  saveState();
+}
+
+// Los tickets de Lucía todavía cuentan en el efectivo del día (cuadre diario sin cambios hasta Cajas física):
+// borrar uno desde aquí también baja el efectivo de su día, y así se avisa.
+function pendBorrar(id) {
+  const p = state.pendientes.find(x => x.id === id);
+  if (!p || p.estado === 'cobrado') return;
+  if (!confirm('¿Borrar el apunte de ' + p.cliente + ' (' + fmt(p.importe) + ' €, ' + fechaDMA(p.fecha) + ')?\n\nTambién baja ese importe del efectivo del día ' + fechaDMA(p.fecha) + ', porque los tickets todavía cuentan en el cuadre diario.')) return;
+  eliminarPendiente(id);
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) { renderLuciaSection(ds); updateDaySummary(ds); }
+  recalcAll(); renderDayGrid(); saveState(); renderPendientes();
+}
+
+function pendToggleEntidad(i, marcado) {
+  const c = state.clientes[i]; if (!c) return;
+  c.entidad = !!marcado;
+  saveState(); renderClientesSelect(); renderPendientes();
+  toast('Solo afecta a los tickets que apuntes a partir de ahora');
+}
+
+function pendAddCliente() {
+  const inp = document.getElementById('pendNuevoCliente');
+  const nombre = inp.value.trim();
+  if (!nombre) { alert('Escribe el nombre del cliente'); return; }
+  if (buscarCliente(nombre)) { toast('Ya existe ese cliente'); return; }
+  asegurarCliente(nombre, document.getElementById('pendNuevoEntidad').checked);
+  inp.value = ''; document.getElementById('pendNuevoEntidad').checked = false;
+  saveState(); renderClientesSelect(); renderPendientes();
 }
 
 function loadState() {
@@ -4109,9 +4278,8 @@ function getLuciaTotal(ds) {
 function renderClientesSelect() {
   const sel = document.getElementById('luciaClient'); if (!sel) return;
   const actual = sel.value;
-  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   sel.innerHTML = '<option value="">— Cliente —</option>' +
-    state.clientes.map(c => `<option value="${esc(c.nombre)}">${esc(c.nombre)}${c.entidad ? ' 🏦' : ''}</option>`).join('') +
+    state.clientes.map(c => `<option value="${escHtml(c.nombre)}">${escHtml(c.nombre)}${c.entidad ? ' 🏦' : ''}</option>`).join('') +
     '<option value="__new__">✏️ Nuevo cliente...</option>';
   sel.value = [...sel.options].some(o => o.value === actual) ? actual : '';
 }
@@ -4139,7 +4307,7 @@ function renderLuciaSection(ds) {
   } else {
     list.innerHTML = tickets.map(t => `
       <div class="lucia-ticket">
-        <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${t.cliente}</span>
+        <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${escHtml(t.cliente)}</span>
         <span class="t-amount">${fmt(t.importe)} €</span>
         <button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>
       </div>`).join('');
