@@ -223,6 +223,7 @@
     font-family: 'DM Mono', monospace; font-size: .83rem; width: 88px; transition: border-color .2s;
   }
   .emp-input:focus { outline: none; border-color: var(--green); background: #fff; }
+  .emp-input.emp-calc, .emp-input.emp-calc:focus { background: var(--surface2); color: var(--muted); cursor: default; border-style: dashed; }
 
   .field-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .field { display: flex; flex-direction: column; gap: 4px; }
@@ -2624,7 +2625,7 @@ function loadForms(evt) {
       Object.entries(empData).forEach(([nombre, vals]) => {
         const emp = buscarEmpleada(state.days[ds].employees, nombre);
         if (emp) {
-          emp.efectivo = Math.round(vals.efectivo*100)/100;
+          if (!esLucia(emp.name)) emp.efectivo = Math.round(vals.efectivo*100)/100;   // E-34: el efectivo de Lucía son sus tickets, no el Forms
           if (vals.glovo > 0) {
             state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
           }
@@ -2632,7 +2633,7 @@ function loadForms(evt) {
             state.days[ds].gastos = Math.round(((state.days[ds].gastos||0) + vals.gastos)*100)/100;
           }
         } else {
-          state.days[ds].employees.push({name:nombre, efectivo:vals.efectivo, glovo:0, ministerio:0});
+          state.days[ds].employees.push({name:nombre, efectivo: esLucia(nombre) ? 0 : vals.efectivo, glovo:0, ministerio:0});
         }
         merged++;
       });
@@ -2864,12 +2865,17 @@ function renderEmpGrid(ds) {
   grid.innerHTML = '';
   emps.forEach((emp, idx) => {
     const isLucia = esLucia(emp.name) || emp.glovo > 0;
+    // E-34: el efectivo de Lucía es la suma de sus tickets: se muestra, pero no se teclea
+    const campo = esLucia(emp.name)
+      ? `<input class="emp-input emp-calc" type="number" value="${getLuciaTotal(ds)||''}" placeholder="0" readonly
+          title="Se calcula con los tickets pendientes de Lucía (más abajo)">`
+      : `<input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
+          oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">`;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
       <span class="emp-name">${emp.name}</span>
-      <input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
-        oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">
+      ${campo}
       <span class="emp-type">€</span>
       <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.8rem" 
         onclick="removeEmp('${ds}',${idx})">✕</button>
@@ -2881,6 +2887,7 @@ function renderEmpGrid(ds) {
 function empChanged(idx, field, val) {
   const ds = state.selectedDay;
   if (!state.days[ds]) return;
+  if (field === 'efectivo' && esLucia(state.days[ds].employees[idx].name)) return;   // E-34
   state.days[ds].employees[idx][field] = parseFloat(val)||0;
   dayChanged();
 }
