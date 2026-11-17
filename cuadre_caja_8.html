@@ -223,6 +223,7 @@
     font-family: 'DM Mono', monospace; font-size: .83rem; width: 88px; transition: border-color .2s;
   }
   .emp-input:focus { outline: none; border-color: var(--green); background: #fff; }
+  .emp-input.emp-calc, .emp-input.emp-calc:focus { background: var(--surface2); color: var(--muted); cursor: default; border-style: dashed; }
 
   .field-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .field { display: flex; flex-direction: column; gap: 4px; }
@@ -720,6 +721,19 @@
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
+  .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:6px 8px; border-radius:5px; font-family:'Jost',sans-serif; font-size:.8rem;
+  }
+  .pend-tabla td.num { text-align:right; font-family:'DM Mono',monospace; white-space:nowrap; }
+  .pend-tabla input.nota { width:100%; min-width:140px; }
+  .pend-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.7rem; font-weight:500; background:var(--teal-lt); color:var(--teal); }
+  .pend-badge.pen { background:#fdf3dc; color:#8a6410; }
+  body.dark .pend-badge.pen { background:#3a3118; color:#e6c36a; }
+  .pend-del { background:none; border:none; cursor:pointer; color:var(--muted2); font-size:.9rem; padding:0 6px; }
+  .pend-del:hover { color:var(--err); }
+  .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
   .seg-diff-pos { color:var(--teal); }
@@ -758,6 +772,7 @@
   }
   .lucia-add-row select { min-width: 180px; }
   .lucia-add-row input[type=number] { width: 100px; font-family: 'DM Mono', monospace; }
+  .lucia-add-row input[type=checkbox] { padding: 0; margin-right: 4px; vertical-align: middle; }
   .lucia-add-row select:focus, .lucia-add-row input:focus { outline: none; border-color: var(--teal); }
   .lucia-ticket-list { display: flex; flex-direction: column; gap: 5px; }
   .lucia-ticket {
@@ -1018,7 +1033,7 @@
         ⬇ Exportar Excel
       </button>
       <div class="copia-estado" id="copiaEstado"></div>
-      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupCompleto()" title="Descarga un fichero JSON con todos los datos de la app: Farmatic, banco, efectivo, gastos, libro, saldos, arqueo y tickets de Lucía">
+      <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="exportBackupCompleto()" title="Descarga un fichero JSON con todos los datos de la app: Farmatic, banco, efectivo, gastos, libro, saldos, arqueo y pendientes de cobro">
         💾 Copia completa (JSON)
       </button>
       <button class="btn-ghost dark" style="width:100%;font-size:.75rem" onclick="document.getElementById('restoreFile').click()" title="Sustituye los datos actuales por los de una copia completa descargada antes">
@@ -1042,6 +1057,7 @@
       <button class="tab-btn" onclick="showTab('resumen')">📊 Resumen</button>
       <button class="tab-btn" onclick="showTab('cajas')">🗃 Cajas</button>
       <button class="tab-btn" onclick="showTab('libro')">📒 Libro</button>
+      <button class="tab-btn" onclick="showTab('pendientes'); renderPendientes()">🧾 Pendientes</button>
       <button class="tab-btn" onclick="showTab('stats')">📈 Estadísticas</button>
       <button class="tab-btn" onclick="showTab('arqueo')">🏦 Arqueo</button>
       <button class="tab-btn" onclick="showTab('seguimiento'); renderSeguimiento()">📋 Seguimiento</button>
@@ -1111,36 +1127,11 @@
               <span class="lucia-total" id="luciaTotal">0,00 €</span>
             </h4>
             <div class="lucia-add-row">
-              <select id="luciaClient">
-                <option value="">— Cliente —</option>
-                <option>Alex Muñoz</option>
-                <option>Amanda Yonh</option>
-                <option>Ana Argüelles</option>
-                <option>Ana Huerta</option>
-                <option>Ana Taibo</option>
-                <option>Beatriz de Cominges</option>
-                <option>Blanca Huerta</option>
-                <option>Cecilia Pardo</option>
-                <option>Colegio Laude</option>
-                <option>Enrique Huerta</option>
-                <option>Fabiola Guerrero</option>
-                <option>Fernando Dominguez García</option>
-                <option>Fernando Huerta</option>
-                <option>Francisco Fernandez Daza</option>
-                <option>Gema Huerta</option>
-                <option>Hacienda</option>
-                <option>Ibone Huerta</option>
-                <option>Inés García Paine</option>
-                <option>Laura Pastor</option>
-                <option>Lucía Lovera Guerrero</option>
-                <option>Miguel Asensio</option>
-                <option>Miriam Torrens</option>
-                <option>Paloma Carmona</option>
-                <option>Pilar González</option>
-                <option>Sebastián del Rey</option>
-                <option value="__new__">✏️ Nuevo cliente...</option>
-              </select>
+              <select id="luciaClient"></select>
               <input type="text" id="luciaClientNew" placeholder="Nombre del cliente" style="display:none;min-width:160px">
+              <label id="luciaEntidadWrap" style="display:none;font-size:.78rem;color:var(--muted);cursor:pointer">
+                <input type="checkbox" id="luciaEntidad"> Entidad (paga por transferencia)
+              </label>
               <input type="number" id="luciaAmount" placeholder="Importe €" step="0.01" min="0">
               <select id="luciaPago" style="font-size:.78rem;padding:6px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:'Jost',sans-serif">
                 <option value="efectivo">💵 Efectivo</option>
@@ -1455,6 +1446,47 @@
       </div>
     </div>
 
+    <!-- TAB: Pendientes de cobro -->
+    <div class="tab-pane" id="tab-pendientes">
+      <div class="section-head">
+        <h2>Pendientes de cobro</h2>
+        <span class="chip" id="pendChip">—</span>
+      </div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:16px">
+        Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
+        Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
+        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Marcarlos como cobrados llegará con la
+        liquidación con Lucía y la conciliación con el banco.
+      </p>
+      <div class="stats-grid" id="pendTotales"></div>
+      <div class="pend-filtros">
+        <select id="pendEstado" onchange="renderPendientes()">
+          <option value="pendiente">Pendientes</option>
+          <option value="cobrado">Cobrados</option>
+          <option value="todos">Todos</option>
+        </select>
+        <select id="pendCircuito" onchange="renderPendientes()">
+          <option value="todos">Los dos circuitos</option>
+          <option value="efectivo">💵 Efectivo (vía Lucía)</option>
+          <option value="transferencia">🏦 Transferencia</option>
+        </select>
+        <select id="pendMes" onchange="renderPendientes()"></select>
+        <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
+      </div>
+      <div id="pendLista"></div>
+      <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal);margin:26px 0 6px">Clientes</h3>
+      <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+        Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
+        Cambiarlo no toca los tickets ya apuntados.
+      </p>
+      <div id="pendClientes"></div>
+      <div class="pend-addcli">
+        <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
+        <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
+        <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
+      </div>
+    </div>
+
     <!-- TAB: Seguimiento empleadas -->
     <div class="tab-pane" id="tab-seguimiento">
       <div class="section-head">
@@ -1542,7 +1574,7 @@
 const STORAGE_KEY = 'cuadre_caja_v3';
 const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
 const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
-const BACKUP_SCHEMA   = 1;                       // versión de esquema del fichero de copia completa
+const BACKUP_SCHEMA   = 2;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets)
 const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
 let guardadoFallido = false;        // el último guardado falló
@@ -1570,6 +1602,8 @@ function buildPersistedState() {
     esperadoPorMes: state.esperadoPorMes,
     saldosPorMes: state.saldosPorMes,
     libroPorMes: state.libroPorMes,
+    pendientes: state.pendientes,
+    clientes: state.clientes,
     formsData: state.formsData
   };
 }
@@ -1668,6 +1702,223 @@ function ajustarAlturaCabecera() {
   if (h) document.documentElement.style.setProperty('--header-h', h.offsetHeight + 'px');
 }
 
+// ─── Libro de pendientes ───────────────────────────────────────────────────
+// Lo que se debe a la farmacia: una lista única, independiente del mes y de las tarjetas diarias (antes cada
+// ticket vivía dentro de days[ds].luciaTickets y desaparecía de la vista al cambiar de mes). Cada apunte:
+//   {id, fecha (de la venta), cliente, importe, origen: 'lucia'|'entidad', pago: 'efectivo'|'transferencia',
+//    estado: 'pendiente'|'cobrado', fechaCobro, ref (liquidación o movimiento del banco), nota}
+// Dos circuitos según cómo llega el dinero: efectivo (vía Lucía, pasa por la caja) y transferencia (entidades
+// como Hacienda o el Colegio Laude: ingreso en la cuenta de las visas, nunca pasa por la caja).
+const CLIENTES_BASE = [
+  'Alex Muñoz','Amanda Yonh','Ana Argüelles','Ana Huerta','Ana Taibo','Beatriz de Cominges','Blanca Huerta',
+  'Cecilia Pardo','Colegio Laude','Enrique Huerta','Fabiola Guerrero','Fernando Dominguez García','Fernando Huerta',
+  'Francisco Fernandez Daza','Gema Huerta','Hacienda','Ibone Huerta','Inés García Paine','Laura Pastor',
+  'Lucía Lovera Guerrero','Miguel Asensio','Miriam Torrens','Paloma Carmona','Pilar González','Sebastián del Rey'
+];
+const ENTIDADES_BASE = ['Hacienda', 'Colegio Laude'];
+
+function clientesIniciales() {
+  return CLIENTES_BASE.map(nombre => ({ nombre, entidad: ENTIDADES_BASE.includes(nombre) }));
+}
+
+// Migración de los datos guardados con la versión anterior (y de las copias del esquema 1): los tickets de
+// days[ds].luciaTickets ({client, amount, pago}) pasan al libro. Los de entidad (Hacienda, Colegio Laude) van
+// por transferencia; el resto son pendientes en efectivo salvo que el ticket ya dijera «transferencia».
+// Trabaja sobre el objeto guardado y es idempotente: solo actúa si todavía no existe `pendientes`.
+function migrarPendientesLegacy(saved) {
+  if (!saved || saved.pendientes !== undefined) return;
+  const clientes = Array.isArray(saved.clientes) ? saved.clientes : clientesIniciales();
+  const esEntidadBase = n => ENTIDADES_BASE.some(e => normNombre(e) === normNombre(n));
+  const pendientes = [];
+  const days = saved.days || {};
+  Object.keys(days).sort().forEach(ds => {
+    const d = days[ds];
+    if (!d) return;
+    (d.luciaTickets || []).forEach(t => {
+      const nombre = (t.client || '').toString().trim();
+      let c = clientes.find(x => normNombre(x.nombre) === normNombre(nombre));
+      if (!c && nombre) { c = { nombre, entidad: esEntidadBase(nombre) }; clientes.push(c); }
+      const entidad = !!(c && c.entidad);
+      pendientes.push({
+        id: 'm' + ds.replace(/-/g, '') + '-' + pendientes.length,
+        fecha: ds,
+        cliente: c ? c.nombre : nombre,
+        importe: t.amount || 0,
+        origen: entidad ? 'entidad' : 'lucia',
+        pago: (entidad || t.pago === 'transferencia') ? 'transferencia' : 'efectivo',
+        estado: 'pendiente', fechaCobro: null, ref: '', nota: ''
+      });
+    });
+    delete d.luciaTickets;
+  });
+  saved.pendientes = pendientes;
+  saved.clientes = clientes;
+}
+
+function nuevoIdPendiente() {
+  return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function buscarCliente(nombre) {
+  const n = normNombre(nombre);
+  return n ? state.clientes.find(c => normNombre(c.nombre) === n) : undefined;
+}
+
+// Devuelve el cliente con ese nombre; si no existe lo crea y queda guardado para la próxima vez (E-29).
+function asegurarCliente(nombre, entidad) {
+  let c = buscarCliente(nombre);
+  if (!c) {
+    c = { nombre: nombre.toString().trim(), entidad: !!entidad };
+    state.clientes.push(c);
+    state.clientes.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }
+  return c;
+}
+
+// Todas las ventas pendientes de una fecha, en el orden en que se apuntaron.
+function getTicketsDia(ds) {
+  return state.pendientes.filter(p => p.fecha === ds);
+}
+
+// Cómo paga por defecto un cliente: las entidades (Hacienda, Colegio Laude…) por transferencia, el resto en efectivo.
+function pagoPorDefecto(c) {
+  return c && c.entidad ? 'transferencia' : 'efectivo';
+}
+
+function agregarPendiente({ fecha, cliente, importe, pago, entidad }) {
+  const c = asegurarCliente(cliente, entidad);
+  const p = {
+    id: nuevoIdPendiente(), fecha, cliente: c.nombre, importe,
+    origen: c.entidad ? 'entidad' : 'lucia',
+    pago: pago || pagoPorDefecto(c),
+    estado: 'pendiente', fechaCobro: null, ref: '', nota: ''
+  };
+  state.pendientes.push(p);
+  return p;
+}
+
+// Un apunte ya cobrado no se borra: está ligado a una liquidación o a un movimiento del banco.
+function eliminarPendiente(id) {
+  const i = state.pendientes.findIndex(p => p.id === id);
+  if (i < 0 || state.pendientes[i].estado === 'cobrado') return false;
+  state.pendientes.splice(i, 1);
+  return true;
+}
+
+// ─── Pestaña Pendientes ────────────────────────────────────────────────────
+const pendFiltro = { mes: 'todos' };   // solo de pantalla: no se guarda
+const escHtml = t => (t == null ? '' : t.toString()).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fechaDMA = ds => ds ? ds.split('-').reverse().join('/') : '';
+const sumar2 = lista => Math.round(lista.reduce((a, p) => a + (p.importe || 0), 0) * 100) / 100;
+
+function renderPendientes() {
+  const tot = document.getElementById('pendTotales'); if (!tot) return;
+  const abiertos = state.pendientes.filter(p => p.estado !== 'cobrado');
+  const ef = abiertos.filter(p => p.pago === 'efectivo');
+  const tr = abiertos.filter(p => p.pago === 'transferencia');
+  const masAntiguo = l => l.length ? ' · el más antiguo, ' + fechaCorta(l.map(p => p.fecha).sort()[0]) : '';
+  tot.innerHTML =
+    `<div class="kpi-card kpi-accent"><div class="kpi-label">💵 Pendiente en efectivo · vía Lucía</div>
+       <div class="kpi-value teal">${fmt(sumar2(ef))} €</div>
+       <div class="kpi-sub"><span>${ef.length}</span> ticket${ef.length === 1 ? '' : 's'}${masAntiguo(ef)}</div></div>` +
+    `<div class="kpi-card kpi-gold"><div class="kpi-label">🏦 Pendiente por transferencia</div>
+       <div class="kpi-value warn">${fmt(sumar2(tr))} €</div>
+       <div class="kpi-sub"><span>${tr.length}</span> ticket${tr.length === 1 ? '' : 's'}${masAntiguo(tr)}</div></div>` +
+    `<div class="kpi-card"><div class="kpi-label">Total pendiente</div>
+       <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
+       <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
+  document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
+
+  // meses con apuntes (por fecha de la venta)
+  const selMes = document.getElementById('pendMes');
+  const meses = [...new Set(state.pendientes.map(p => p.fecha.slice(0, 7)))].sort().reverse();
+  const actual = selMes.value || pendFiltro.mes;
+  selMes.innerHTML = '<option value="todos">Todos los meses</option>' + meses.map(m => `<option value="${m}">${nombreMes(m)}</option>`).join('');
+  selMes.value = meses.includes(actual) ? actual : 'todos';
+  pendFiltro.mes = selMes.value;
+
+  const fe = document.getElementById('pendEstado').value, fc = document.getElementById('pendCircuito').value;
+  const ft = normNombre(document.getElementById('pendTexto').value);
+  const lista = state.pendientes
+    .filter(p => fe === 'todos' || (fe === 'cobrado') === (p.estado === 'cobrado'))
+    .filter(p => fc === 'todos' || p.pago === fc)
+    .filter(p => pendFiltro.mes === 'todos' || p.fecha.startsWith(pendFiltro.mes))
+    .filter(p => !ft || normNombre(p.cliente).includes(ft))
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+
+  const el = document.getElementById('pendLista');
+  if (!lista.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px"><p>' + (state.pendientes.length ? 'Ningún apunte con estos filtros.' : 'Todavía no hay tickets pendientes.') + '</p></div>';
+  } else {
+    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th><th>Pago</th><th>Estado</th><th>Nota</th><th></th></tr></thead><tbody>' +
+      lista.map(p => {
+        const cobrado = p.estado === 'cobrado';
+        return `<tr>
+          <td class="mono">${fechaDMA(p.fecha)}</td>
+          <td>${p.origen === 'entidad' ? '🏦 ' : ''}${escHtml(p.cliente)}</td>
+          <td class="num">${fmt(p.importe)} €</td>
+          <td><select ${cobrado ? 'disabled' : ''} onchange="pendCambiarPago('${p.id}', this.value)">
+                <option value="efectivo"${p.pago === 'efectivo' ? ' selected' : ''}>💵 Efectivo</option>
+                <option value="transferencia"${p.pago === 'transferencia' ? ' selected' : ''}>🏦 Transferencia</option></select></td>
+          <td>${cobrado ? '<span class="pend-badge">Cobrado' + (p.fechaCobro ? ' ' + fechaDMA(p.fechaCobro) : '') + '</span>' : '<span class="pend-badge pen">Pendiente</span>'}</td>
+          <td><input type="text" class="nota" maxlength="120" value="${escHtml(p.nota)}" placeholder="—" onchange="pendCambiarNota('${p.id}', this.value)"></td>
+          <td>${cobrado ? '' : `<button class="pend-del" title="Borrar" onclick="pendBorrar('${p.id}')">✕</button>`}</td></tr>`;
+      }).join('') +
+      `<tr style="background:var(--teal-lt);font-weight:700"><td colspan="2">TOTAL (${lista.length})</td><td class="num">${fmt(sumar2(lista))} €</td><td colspan="4"></td></tr></tbody></table>`;
+  }
+
+  // clientes
+  document.getElementById('pendClientes').innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Cliente</th><th>Entidad (transferencia)</th><th style="text-align:right">Pendiente</th></tr></thead><tbody>' +
+    state.clientes.map((c, i) => {
+      const deben = abiertos.filter(p => normNombre(p.cliente) === normNombre(c.nombre));
+      return `<tr><td>${escHtml(c.nombre)}</td>
+        <td><input type="checkbox" ${c.entidad ? 'checked' : ''} onchange="pendToggleEntidad(${i}, this.checked)"></td>
+        <td class="num">${deben.length ? fmt(sumar2(deben)) + ' €' : '—'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function pendCambiarPago(id, pago) {
+  const p = state.pendientes.find(x => x.id === id);
+  if (!p || p.estado === 'cobrado' || (pago !== 'efectivo' && pago !== 'transferencia')) return;
+  p.pago = pago;
+  saveState(); renderPendientes();
+}
+
+function pendCambiarNota(id, nota) {
+  const p = state.pendientes.find(x => x.id === id); if (!p) return;
+  p.nota = nota.trim();
+  saveState();
+}
+
+// Los tickets de Lucía todavía cuentan en el efectivo del día (cuadre diario sin cambios hasta Cajas física):
+// borrar uno desde aquí también baja el efectivo de su día, y así se avisa.
+function pendBorrar(id) {
+  const p = state.pendientes.find(x => x.id === id);
+  if (!p || p.estado === 'cobrado') return;
+  if (!confirm('¿Borrar el apunte de ' + p.cliente + ' (' + fmt(p.importe) + ' €, ' + fechaDMA(p.fecha) + ')?\n\nTambién baja ese importe del efectivo del día ' + fechaDMA(p.fecha) + ', porque los tickets todavía cuentan en el cuadre diario.')) return;
+  eliminarPendiente(id);
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) { renderLuciaSection(ds); updateDaySummary(ds); }
+  recalcAll(); renderDayGrid(); saveState(); renderPendientes();
+}
+
+function pendToggleEntidad(i, marcado) {
+  const c = state.clientes[i]; if (!c) return;
+  c.entidad = !!marcado;
+  saveState(); renderClientesSelect(); renderPendientes();
+  toast('Solo afecta a los tickets que apuntes a partir de ahora');
+}
+
+function pendAddCliente() {
+  const inp = document.getElementById('pendNuevoCliente');
+  const nombre = inp.value.trim();
+  if (!nombre) { alert('Escribe el nombre del cliente'); return; }
+  if (buscarCliente(nombre)) { toast('Ya existe ese cliente'); return; }
+  asegurarCliente(nombre, document.getElementById('pendNuevoEntidad').checked);
+  inp.value = ''; document.getElementById('pendNuevoEntidad').checked = false;
+  saveState(); renderClientesSelect(); renderPendientes();
+}
+
 function loadState() {
   let raw = null;
   try {
@@ -1678,6 +1929,7 @@ function loadState() {
     state.caixa       = saved.caixa       || {};
     state.cajero      = saved.cajero      || {};
     state.caixaRawRows = saved.caixaRawRows || [];
+    migrarPendientesLegacy(saved);   // datos guardados con la versión anterior: los tickets estaban dentro de cada día
     state.days        = saved.days        || {};
     state.libro       = saved.libro       || state.libro;
     state.month       = saved.month       || null;
@@ -1686,6 +1938,8 @@ function loadState() {
     state.esperadoPorMes  = saved.esperadoPorMes  || {};
     state.saldosPorMes    = saved.saldosPorMes    || {};
   state.libroPorMes     = saved.libroPorMes     || {};
+    state.pendientes      = saved.pendientes      || [];
+    state.clientes        = saved.clientes        || clientesIniciales();
   state.formsData       = saved.formsData       || {};
     return Object.keys(state.farmatic).length > 0;
   } catch(e) {
@@ -1769,7 +2023,8 @@ function resumenCopia(d) {
     diasFarmatic: Object.keys(d.farmatic || {}).length,
     entradasBanco: Object.keys(d.caixa || {}).length,
     diasConEfectivo: dias.filter(x => x && (x.employees || []).some(e => (e.efectivo || 0) > 0)).length,
-    ticketsLucia: dias.reduce((s, x) => s + ((x && x.luciaTickets) || []).length, 0),
+    // esquema 2: libro de pendientes; copias del esquema 1: tickets dentro de cada día
+    pendientes: (d.pendientes !== undefined ? (d.pendientes || []).length : dias.reduce((s, x) => s + ((x && x.luciaTickets) || []).length, 0)),
     mesesConLibro: Object.keys(d.libroPorMes || {}).length,
     mesesConSaldo: Object.keys(d.saldosPorMes || {}).length,
     arqueosGuardados: (d.arqueoHistorico || []).length,
@@ -1780,7 +2035,7 @@ function resumenCopia(d) {
 function hayDatosQueCopiar() {
   const r = resumenCopia(buildPersistedState());
   return r.diasFarmatic > 0 || r.entradasBanco > 0 || r.diasConEfectivo > 0 ||
-         r.ticketsLucia > 0 || r.mesesConLibro > 0 || r.arqueosGuardados > 0 || r.mesesConRecuento > 0;
+         r.pendientes > 0 || r.mesesConLibro > 0 || r.arqueosGuardados > 0 || r.mesesConRecuento > 0;
 }
 
 function textoCopiaCompleta(ahora) {
@@ -1813,13 +2068,13 @@ function validarCopiaCompleta(o) {
   if (!esObj(d)) return 'La copia no contiene datos.';
   for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
-  for (const k of ['caixaRawRows', 'arqueoHistorico'])
+  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'clientes'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   if (d.libro !== undefined && (d.libro === null || typeof d.libro !== 'object')) return 'El campo «libro» no tiene el formato esperado.';
   if (d.arqueo !== undefined && d.arqueo !== null && !esObj(d.arqueo)) return 'El campo «arqueo» no tiene el formato esperado.';
   if (d.month !== undefined && d.month !== null && !/^\d{4}-\d{2}$/.test(d.month)) return 'El campo «month» no tiene el formato esperado.';
   const r = resumenCopia(d);
-  if (r.diasFarmatic === 0 && r.entradasBanco === 0 && r.diasConEfectivo === 0 && r.ticketsLucia === 0 &&
+  if (r.diasFarmatic === 0 && r.entradasBanco === 0 && r.diasConEfectivo === 0 && r.pendientes === 0 &&
       r.mesesConLibro === 0 && r.arqueosGuardados === 0 && r.mesesConRecuento === 0) return 'La copia está vacía: no hay nada que restaurar.';
   return null;
 }
@@ -1852,7 +2107,7 @@ function aplicarCopiaCompleta(obj, nombreFichero) {
     'Fichero: ' + nombreFichero,
     'Hecha el: ' + cuando,
     'Mes: ' + (r.mes || '—'),
-    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Tickets de Lucía: ' + r.ticketsLucia,
+    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Pendientes de cobro: ' + r.pendientes,
     'Meses con libro: ' + r.mesesConLibro + ' · Meses con saldo: ' + r.mesesConSaldo + ' · Arqueos: ' + r.arqueosGuardados,
     '',
     'Esto SUSTITUYE todos los datos actuales de este navegador.' + (hayActuales ? ' Antes se descargará una copia de lo que hay ahora.' : ''),
@@ -1981,7 +2236,8 @@ function estadoPersistidoVacio() {
   libro.custom = [];
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
-    arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {}, formsData: {}
+    arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {},
+    pendientes: [], clientes: clientesIniciales(), formsData: {}
   };
 }
 
@@ -2028,6 +2284,8 @@ const state = {
   arqueoHistorico: [],
   esperadoPorMes: {}, // 'YYYY-MM' -> {valor, fecha}: efectivo esperado en caja al cierre de cada mes, con los datos de ese mes (E-14)
   saldosPorMes: {},   // saldo inicial TECLEADO a mano; el heredado no se guarda aquí, se calcula (getSaldoInicial)
+  pendientes: [],     // libro de pendientes de cobro, independiente del mes y de las tarjetas diarias (ver «Libro de pendientes»)
+  clientes: clientesIniciales(),   // [{nombre, entidad}]: clientes de los pendientes; entidad = paga por transferencia (E-29)
   formsData: {},
   defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
@@ -2348,7 +2606,7 @@ function loadForms(evt) {
       if (!state.days[ds]) {
         state.days[ds] = {
           employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})),
-          glovo:0, promo:0, gastos:0, luciaTickets:[], notas:''
+          glovo:0, promo:0, gastos:0, notas:''
         };
       }
 
@@ -2360,14 +2618,15 @@ function loadForms(evt) {
         state.formsData[ds][empF ? empF.name : nombre] = Math.round(vals.efectivo*100)/100;
       });
 
-      // Si el día ya tiene efectivo introducido a mano, no tocarlo
-      const yaHayDatos = state.days[ds].employees.some(e => (e.efectivo||0) > 0);
+      // Si el día ya tiene efectivo introducido a mano, no tocarlo. El de Lucía no cuenta: son sus tickets,
+      // y con ellos el Forms de ese día se descartaba entero (E-08)
+      const yaHayDatos = state.days[ds].employees.some(e => !esLucia(e.name) && (e.efectivo||0) > 0);
       if (yaHayDatos) { skipped++; return; }
 
       Object.entries(empData).forEach(([nombre, vals]) => {
         const emp = buscarEmpleada(state.days[ds].employees, nombre);
         if (emp) {
-          emp.efectivo = Math.round(vals.efectivo*100)/100;
+          if (!esLucia(emp.name)) emp.efectivo = Math.round(vals.efectivo*100)/100;   // E-34: el efectivo de Lucía son sus tickets, no el Forms
           if (vals.glovo > 0) {
             state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
           }
@@ -2375,7 +2634,7 @@ function loadForms(evt) {
             state.days[ds].gastos = Math.round(((state.days[ds].gastos||0) + vals.gastos)*100)/100;
           }
         } else {
-          state.days[ds].employees.push({name:nombre, efectivo:vals.efectivo, glovo:0, ministerio:0});
+          state.days[ds].employees.push({name:nombre, efectivo: esLucia(nombre) ? 0 : vals.efectivo, glovo:0, ministerio:0});
         }
         merged++;
       });
@@ -2607,12 +2866,17 @@ function renderEmpGrid(ds) {
   grid.innerHTML = '';
   emps.forEach((emp, idx) => {
     const isLucia = esLucia(emp.name) || emp.glovo > 0;
+    // E-34: el efectivo de Lucía es la suma de sus tickets: se muestra, pero no se teclea
+    const campo = esLucia(emp.name)
+      ? `<input class="emp-input emp-calc" type="number" value="${getLuciaTotal(ds)||''}" placeholder="0" readonly
+          title="Se calcula con los tickets pendientes de Lucía (más abajo)">`
+      : `<input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
+          oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">`;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
       <span class="emp-name">${emp.name}</span>
-      <input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
-        oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">
+      ${campo}
       <span class="emp-type">€</span>
       <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.8rem" 
         onclick="removeEmp('${ds}',${idx})">✕</button>
@@ -2624,6 +2888,7 @@ function renderEmpGrid(ds) {
 function empChanged(idx, field, val) {
   const ds = state.selectedDay;
   if (!state.days[ds]) return;
+  if (field === 'efectivo' && esLucia(state.days[ds].employees[idx].name)) return;   // E-34
   state.days[ds].employees[idx][field] = parseFloat(val)||0;
   dayChanged();
 }
@@ -2912,11 +3177,10 @@ function renderStats() {
   let numTicketsLucia = 0;
   const clientTotals = {};
   days.forEach(ds => {
-    const tickets = state.days[ds]?.luciaTickets || [];
-    tickets.forEach(t => {
-      totalTicketsLucia = Math.round((totalTicketsLucia + (t.amount||0))*100)/100;
+    getTicketsDia(ds).forEach(t => {
+      totalTicketsLucia = Math.round((totalTicketsLucia + (t.importe||0))*100)/100;
       numTicketsLucia++;
-      if (t.client) clientTotals[t.client] = Math.round(((clientTotals[t.client]||0) + (t.amount||0))*100)/100;
+      if (t.cliente) clientTotals[t.cliente] = Math.round(((clientTotals[t.cliente]||0) + (t.importe||0))*100)/100;
     });
   });
   const top3Clients = Object.entries(clientTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
@@ -3376,11 +3640,10 @@ function handleLuciaTicketsFile(evt) {
       if (!state.days[ds]) {
         state.days[ds] = {
           employees: state.defaultEmployees.map(n=>({name:n,efectivo:0})),
-          glovo:0, promo:0, gastos:0, luciaTickets:[], notas:''
+          glovo:0, promo:0, gastos:0, notas:''
         };
       }
-      if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
-      state.days[ds].luciaTickets.push({client, amount, pago});
+      agregarPendiente({fecha: ds, cliente: client, importe: amount, pago});   // E-18: «pago» no existe en esta función y la importación falla; se corrige en el paso 6
       count++;
     }
 
@@ -3404,8 +3667,8 @@ function calcEfectivoActivo() {
   // Total tickets Lucía del mes
   let totalLucia = 0;
   state.daysInMonth.forEach(ds => {
-    (state.days[ds]?.luciaTickets||[]).forEach(t => {
-      totalLucia = Math.round((totalLucia + (t.amount||0))*100)/100;
+    getTicketsDia(ds).forEach(t => {
+      totalLucia = Math.round((totalLucia + (t.importe||0))*100)/100;
     });
   });
 
@@ -4016,23 +4279,45 @@ function getLuciaEmp(ds) {
 }
 
 function getLuciaTotal(ds) {
-  const tickets = state.days[ds]?.luciaTickets || [];
-  return Math.round(tickets.reduce((s,t) => s+(t.amount||0), 0)*100)/100;
+  return Math.round(getTicketsDia(ds).reduce((s,t) => s+(t.importe||0), 0)*100)/100;
+}
+
+// Rellena el desplegable de clientes con los guardados (state.clientes) y conserva la selección si sigue existiendo.
+function renderClientesSelect() {
+  const sel = document.getElementById('luciaClient'); if (!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">— Cliente —</option>' +
+    state.clientes.map(c => `<option value="${escHtml(c.nombre)}">${escHtml(c.nombre)}${c.entidad ? ' 🏦' : ''}</option>`).join('') +
+    '<option value="__new__">✏️ Nuevo cliente...</option>';
+  sel.value = [...sel.options].some(o => o.value === actual) ? actual : '';
+}
+
+// El «pago» propuesto sigue al cliente elegido (entidad → transferencia); se puede cambiar a mano antes de añadir.
+function sincronizarPagoCliente() {
+  const sel = document.getElementById('luciaClient');
+  const pag = document.getElementById('luciaPago');
+  const nuevo = sel.value === '__new__';
+  document.getElementById('luciaClientNew').style.display = nuevo ? 'block' : 'none';
+  document.getElementById('luciaEntidadWrap').style.display = nuevo ? 'inline-block' : 'none';
+  if (!pag) return;
+  if (nuevo) pag.value = document.getElementById('luciaEntidad').checked ? 'transferencia' : 'efectivo';
+  else pag.value = pagoPorDefecto(buscarCliente(sel.value));
 }
 
 function renderLuciaSection(ds) {
-  const tickets = state.days[ds]?.luciaTickets || [];
+  renderClientesSelect();
+  const tickets = getTicketsDia(ds);
   const total = getLuciaTotal(ds);
   document.getElementById('luciaTotal').textContent = fmt(total)+' €';
   const list = document.getElementById('luciaTicketList');
   if (tickets.length === 0) {
     list.innerHTML = '<div class="lucia-empty">Sin tickets por hoy</div>';
   } else {
-    list.innerHTML = tickets.map((t,i) => `
+    list.innerHTML = tickets.map(t => `
       <div class="lucia-ticket">
-        <span class="t-client">${t.client}</span>
-        <span class="t-amount">${fmt(t.amount)} €</span>
-        <button class="t-del" onclick="removeLuciaTicket(${i})" title="Eliminar">✕</button>
+        <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${escHtml(t.cliente)}</span>
+        <span class="t-amount">${fmt(t.importe)} €</span>
+        <button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>
       </div>`).join('');
   }
   // Sync Lucía employee efectivo with ticket total
@@ -4044,45 +4329,41 @@ function addLuciaTicket() {
   const ds = state.selectedDay; if (!ds) return;
   const sel = document.getElementById('luciaClient');
   const newInp = document.getElementById('luciaClientNew');
-  let client = sel.value === '__new__' ? newInp.value.trim() : sel.value;
+  const nuevo = sel.value === '__new__';
+  let client = nuevo ? newInp.value.trim() : sel.value;
   const amount = parseFloat(document.getElementById('luciaAmount').value)||0;
-  const pago   = document.getElementById('luciaPago')?.value || 'efectivo';
+  let pago     = document.getElementById('luciaPago')?.value || 'efectivo';
   if (!client || client === '') { alert('Selecciona o escribe el nombre del cliente'); return; }
   if (amount <= 0) { alert('Introduce un importe válido'); return; }
 
-  // If new client, add to select options
-  if (sel.value === '__new__' && client) {
-    const opt = document.createElement('option');
-    opt.value = client; opt.textContent = client;
-    sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+  // Cliente nuevo: queda guardado para la próxima vez (E-29). Si el nombre ya existía se usa ese, con su forma de pago.
+  const existente = nuevo ? buscarCliente(client) : null;
+  if (existente) { client = existente.nombre; pago = pagoPorDefecto(existente); toast('Ya existía «' + client + '»: se ha usado ese cliente'); }
+  const entidad = nuevo && !existente && document.getElementById('luciaEntidad').checked;
+  agregarPendiente({fecha: ds, cliente: client, importe: amount, pago, entidad});
+  if (nuevo) {
+    newInp.value = ''; document.getElementById('luciaEntidad').checked = false;
+    renderClientesSelect();
     sel.value = client;
-    newInp.style.display = 'none';
-    newInp.value = '';
   }
-
-  if (!state.days[ds].luciaTickets) state.days[ds].luciaTickets = [];
-  state.days[ds].luciaTickets.push({client, amount, pago});
   document.getElementById('luciaAmount').value = '';
-  const pagSel = document.getElementById('luciaPago'); if (pagSel) pagSel.value = 'efectivo';
+  sincronizarPagoCliente();
   renderLuciaSection(ds);
   dayChanged();
   saveState();
 }
 
-function removeLuciaTicket(idx) {
+function removeLuciaTicket(id) {
   const ds = state.selectedDay; if (!ds) return;
-  state.days[ds].luciaTickets.splice(idx, 1);
+  if (!eliminarPendiente(id)) return;
   renderLuciaSection(ds);
   dayChanged();
   saveState();
 }
 
-// Show/hide new client input
+// Cambiar de cliente (o marcar «Entidad») ajusta el pago propuesto y muestra/oculta los campos del cliente nuevo
 document.addEventListener('change', e => {
-  if (e.target.id === 'luciaClient') {
-    document.getElementById('luciaClientNew').style.display =
-      e.target.value === '__new__' ? 'block' : 'none';
-  }
+  if (e.target.id === 'luciaClient' || e.target.id === 'luciaEntidad') sincronizarPagoCliente();
 });
 
 function getDayEfectivo(ds) {
@@ -4804,11 +5085,10 @@ function exportExcelCore() {
   ];
   let luciaTotal = 0;
   sortedAsc.forEach(ds => {
-    const tickets = state.days[ds]?.luciaTickets || [];
-    tickets.forEach(t => {
+    getTicketsDia(ds).forEach(t => {
       const tSerial = dateSerial(ds);
-      ltRows.push(['', tSerial, t.client, n2(t.amount)]);
-      luciaTotal = n2(luciaTotal + t.amount);
+      ltRows.push(['', tSerial, t.cliente, n2(t.importe)]);
+      luciaTotal = n2(luciaTotal + t.importe);
     });
   });
   ltRows.push(['','','Total', luciaTotal]);
