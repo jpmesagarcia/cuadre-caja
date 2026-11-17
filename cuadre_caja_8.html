@@ -2618,8 +2618,9 @@ function loadForms(evt) {
         state.formsData[ds][empF ? empF.name : nombre] = Math.round(vals.efectivo*100)/100;
       });
 
-      // Si el día ya tiene efectivo introducido a mano, no tocarlo
-      const yaHayDatos = state.days[ds].employees.some(e => (e.efectivo||0) > 0);
+      // Si el día ya tiene efectivo introducido a mano, no tocarlo. El de Lucía no cuenta: son sus tickets,
+      // y con ellos el Forms de ese día se descartaba entero (E-08)
+      const yaHayDatos = state.days[ds].employees.some(e => !esLucia(e.name) && (e.efectivo||0) > 0);
       if (yaHayDatos) { skipped++; return; }
 
       Object.entries(empData).forEach(([nombre, vals]) => {
