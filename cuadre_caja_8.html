@@ -721,6 +721,8 @@
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
+  .cajas-sub { font-family:'Cormorant Garamond',serif; font-size:1.15rem; color:var(--teal); margin:22px 0 8px; font-weight:600; }
+  .cajas-sub span { font-family:'Jost',sans-serif; font-size:.74rem; color:var(--muted); font-weight:400; }
   .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
   .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
     background:var(--surface2); border:1px solid var(--border); color:var(--text);
@@ -1216,8 +1218,17 @@
         <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
       </div>
       <div id="cajasTable" style="display:none">
+        <h3 class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></h3>
         <div class="data-table-wrap">
           <table class="data-table" id="tCajas"></table>
+        </div>
+        <h3 class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></h3>
+        <div class="data-table-wrap">
+          <table class="data-table" id="tCajasFisica"></table>
+        </div>
+        <h3 class="cajas-sub">Puente entre las dos</h3>
+        <div class="data-table-wrap">
+          <table class="data-table" id="tCajasPuente"></table>
         </div>
       </div>
     </div>
@@ -4525,8 +4536,51 @@ function renderCajas() {
   }
   html += '</tbody>';
   tb.innerHTML = html;
+  renderCajasFisica();
   document.getElementById('emptyCajas').style.display = 'none';
   document.getElementById('cajasTable').style.display = 'block';
+}
+
+// Cajas física en pantalla, debajo de Cajas actual, y la línea de puente que las une.
+// La última columna enseña los tickets de cada día: no entran en Cajas física, y son justo la diferencia con Cajas actual.
+function renderCajasFisica() {
+  const c = calcCajaFisica();
+  let html = `<thead><tr>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
+  </tr></thead><tbody>`;
+  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
+  c.filas.forEach(f => {
+    const tk = getLuciaTotal(f.ds);
+    html += `<tr>
+      <td>${f.ds.slice(5)}</td>
+      <td style="text-align:left;color:var(--muted)">${f.ds}</td>
+      <td>${fmt(f.ef)}</td>
+      <td>${f.cajero ? `<span style="color:var(--err)">−${fmt(f.cajero)}</span>` : '—'}</td>
+      <td>${f.gastos ? `<span style="color:var(--warn)">−${fmt(f.gastos)}</span>` : '—'}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(f.acum)}</td>
+      <td style="color:var(--muted)">${tk ? fmt(tk) : '—'}</td>
+    </tr>`;
+  });
+  if (c.libro !== 0) {
+    const gastoStr = c.libro < 0
+      ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
+      : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
+    html += `<tr style="background:var(--gold-lt);font-weight:600">
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
+    </tr>`;
+  }
+  document.getElementById('tCajasFisica').innerHTML = html + '</tbody>';
+
+  let p = `<thead><tr><th style="text-align:left">Concepto</th><th>Importe</th></tr></thead><tbody>`;
+  p += `<tr><td style="text-align:left">Efectivo total de Cajas actual</td><td>${fmt(c.acumActual)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">− Tickets de Lucía en efectivo (pendientes de que los devuelva)</td><td style="color:var(--err)">−${fmt(c.tickets.efectivo)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">− Tickets por transferencia (entidades: entran en el banco, no en la caja)</td><td style="color:var(--err)">−${fmt(c.tickets.transferencia)} €</td></tr>`;
+  p += `<tr style="background:var(--gold-lt);font-weight:700"><td style="text-align:left">= Efectivo total de Cajas física</td><td style="color:var(--teal)">${fmt(c.resultado)} €</td></tr>`;
+  if (c.sinExplicar !== 0) {
+    p += `<tr style="font-weight:600"><td style="text-align:left;color:var(--err)">Sin explicar: Cajas física no coincide con el puente (suele ser un día con tickets cuya ficha no incluye a Lucía)</td><td style="color:var(--err)">${(c.sinExplicar>0?'+':'')+fmt(c.sinExplicar)} €</td></tr>`;
+  }
+  document.getElementById('tCajasPuente').innerHTML = p + '</tbody>';
 }
 
 
