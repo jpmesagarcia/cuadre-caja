@@ -1365,7 +1365,7 @@
         <span class="chip" id="arqueoChip">—</span>
       </div>
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
-        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Los tickets de Lucía se descuentan automáticamente.
+        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Se compara con Cajas física, que solo cuenta el dinero que ha pasado por la caja: los tickets pendientes de Lucía y de las entidades no entran, así que no hay nada que restar.
       </p>
 
       <div class="arqueo-grid">
@@ -1408,21 +1408,12 @@
             <span class="arqueo-lbl">Total físico en caja</span>
             <span class="arqueo-val" style="font-weight:700" id="arqueoTotal">0,00 €</span>
           </div>
-          <div style="display:none"><span id="arqueoLucia"></span><span id="arqueoNeto"></span></div>
 
           <div class="arqueo-divider"></div>
 
           <div class="arqueo-row">
-            <span class="arqueo-lbl">Efectivo esperado (Cajas)</span>
-            <span class="arqueo-val" id="arqueoEsperado">—</span>
-          </div>
-          <div class="arqueo-row">
-            <span class="arqueo-lbl">− Tickets Lucía</span>
-            <span class="arqueo-val err" id="arqueoEsperadoLucia">—</span>
-          </div>
-          <div class="arqueo-row">
-            <span class="arqueo-lbl">= Esperado en caja</span>
-            <span class="arqueo-val" id="arqueoEsperadoNeto" style="font-weight:700">—</span>
+            <span class="arqueo-lbl">Efectivo esperado (Cajas física)</span>
+            <span class="arqueo-val" id="arqueoEsperado" style="font-weight:700">—</span>
           </div>
 
           <div class="arqueo-divider"></div>
@@ -3661,32 +3652,59 @@ function handleLuciaTicketsFile(evt) {
 // Cálculo del arqueo: recuento tecleado frente al efectivo esperado de los datos del mes. Es el único sitio
 // que lo calcula para lo que se VE (renderArqueo) y para lo que se GUARDA (saveArqueoSnapshot), de modo que
 // nunca pueden diferir (E-13). Estadísticas conserva su propia copia de la fórmula: es E-38 (fase 5).
-// Efectivo esperado en caja del mes actual: saldo inicial + Cajas (efectivo − cajero − gastos) + Libro, menos
-// los tickets de Lucía (salen por otra vía). Lo usan el arqueo y el registro del esperado de cada mes.
-function calcEfectivoActivo() {
-  // Total tickets Lucía del mes
-  let totalLucia = 0;
+// ─── Cajas física ──────────────────────────────────────────────────────────
+// Solo cuenta el dinero que ha pasado por la caja: el efectivo de las empleadas (y, desde la liquidación con
+// Lucía, lo que ella devuelve el día que se registra). Los tickets de Lucía y de las entidades no entran: son
+// pendientes de cobro (libro de pendientes) y no están físicamente en la caja. La hoja «Cajas» de siempre
+// sigue calculándose igual, con los tickets dentro, hasta nueva orden (en paralelo, mínimo 3 cierres de mes).
+function getDayEfectivoFisico(ds) {
+  const d = state.days[ds];
+  if (!d) return 0;
+  return d.employees.reduce((s, e) => esLucia(e.name) ? s : s + (e.efectivo || 0), 0);
+}
+
+// Tickets de los días del mes, repartidos por cómo llega el dinero (efectivo vía Lucía / transferencia).
+function calcTicketsMes() {
+  const t = {efectivo: 0, transferencia: 0};
   state.daysInMonth.forEach(ds => {
-    getTicketsDia(ds).forEach(t => {
-      totalLucia = Math.round((totalLucia + (t.importe||0))*100)/100;
+    getTicketsDia(ds).forEach(p => {
+      const k = p.pago === 'transferencia' ? 'transferencia' : 'efectivo';
+      t[k] = Math.round((t[k] + (p.importe||0))*100)/100;
     });
   });
+  return t;
+}
 
-  // Efectivo esperado = acumulado Cajas + Libro
+// Las dos cajas del mes y la línea de puente que las une:
+//   Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física.
+// `sinExplicar` es lo que sobra o falta para que el puente cuadre: debe ser 0.
+function calcCajaFisica() {
   const saldo0 = getSaldoInicial(state.month).valor;
-  let acumEsperado = saldo0;
+  const lt = getLibroTotals();
+  const filas = [];
+  let acumFisico = saldo0, acumActual = saldo0;
   state.daysInMonth.forEach(ds => {
-    const ef     = getDayEfectivo(ds);
+    const ef     = Math.round(getDayEfectivoFisico(ds)*100)/100;
     const gastos = state.days[ds]?.gastos||0;
     const cajero = state.cajero?.[ds]||0;
-    acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
+    acumFisico = Math.round((acumFisico + ef - cajero - gastos)*100)/100;
+    acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
+    filas.push({ds, ef, cajero, gastos, acum: acumFisico});
   });
-  // Aplicar libro (ya incluye el neto del libro)
-  acumEsperado = Math.round((acumEsperado + getLibroTotals().net)*100)/100;
+  // El neto del Libro entra igual en las dos
+  acumFisico = Math.round((acumFisico + lt.net)*100)/100;
+  acumActual = Math.round((acumActual + lt.net)*100)/100;
+  const tickets = calcTicketsMes();
+  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia)*100)/100;
+  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, resultado,
+          sinExplicar: Math.round((acumFisico - resultado)*100)/100};
+}
 
-  // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
-  const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
-  return {saldo0, acumEsperado, totalLucia, esperadoNeto};
+// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − cajero − gastos + Libro).
+// No resta nada: los pendientes nunca entraron (E-02). Lo usan el arqueo y el registro del esperado de cada mes.
+function calcEfectivoActivo() {
+  const c = calcCajaFisica();
+  return {saldo0: c.saldo0, acumEsperado: c.acumFisico, esperadoNeto: c.acumFisico};
 }
 
 function calcArqueo() {
@@ -3697,11 +3715,11 @@ function calcArqueo() {
     .some(id => document.getElementById(id).value !== '');
   const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
 
-  const {acumEsperado, totalLucia, esperadoNeto} = calcEfectivoActivo();
+  const {esperadoNeto} = calcEfectivoActivo();
 
-  // Diferencia = físico total − esperado neto
+  // Diferencia = recuento − esperado (Cajas física)
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
-  return {monedas, cambio, billetes, hayRecuento, totalFisico, totalLucia, acumEsperado, esperadoNeto, diff};
+  return {monedas, cambio, billetes, hayRecuento, totalFisico, esperadoNeto, diff};
 }
 
 // Pinta el arqueo con los datos de ahora mismo. Se llama al abrir la pestaña y desde recalcAll (cambia el
@@ -3712,11 +3730,7 @@ function renderArqueo() {
   const etiqueta = document.getElementById('arqueoMesEtiqueta');
   if (etiqueta) etiqueta.textContent = state.month ? nombreMes(state.month) : 'este mes';
   document.getElementById('arqueoTotal').textContent       = fmt(c.totalFisico)+' €';
-  document.getElementById('arqueoLucia').textContent       = '−'+fmt(c.totalLucia)+' €';
-  document.getElementById('arqueoNeto').textContent        = fmt(c.totalFisico)+' €';
-  document.getElementById('arqueoEsperado').textContent    = fmt(c.acumEsperado)+' €';
-  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(c.totalLucia)+' €';
-  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(c.esperadoNeto)+' €';
+  document.getElementById('arqueoEsperado').textContent    = fmt(c.esperadoNeto)+' €';
 
   const diffEl  = document.getElementById('arqueoDiff');
   const diffMsg = document.getElementById('arqueoDiffMsg');
