@@ -721,6 +721,8 @@
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
+  .cajas-sub { font-family:'Cormorant Garamond',serif; font-size:1.15rem; color:var(--teal); margin:22px 0 8px; font-weight:600; }
+  .cajas-sub span { font-family:'Jost',sans-serif; font-size:.74rem; color:var(--muted); font-weight:400; }
   .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
   .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
     background:var(--surface2); border:1px solid var(--border); color:var(--text);
@@ -1216,8 +1218,17 @@
         <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
       </div>
       <div id="cajasTable" style="display:none">
+        <h3 class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></h3>
         <div class="data-table-wrap">
           <table class="data-table" id="tCajas"></table>
+        </div>
+        <h3 class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></h3>
+        <div class="data-table-wrap">
+          <table class="data-table" id="tCajasFisica"></table>
+        </div>
+        <h3 class="cajas-sub">Puente entre las dos</h3>
+        <div class="data-table-wrap">
+          <table class="data-table" id="tCajasPuente"></table>
         </div>
       </div>
     </div>
@@ -1365,7 +1376,7 @@
         <span class="chip" id="arqueoChip">—</span>
       </div>
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
-        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Los tickets de Lucía se descuentan automáticamente.
+        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Se compara con Cajas física, que solo cuenta el dinero que ha pasado por la caja: los tickets pendientes de Lucía y de las entidades no entran, así que no hay nada que restar.
       </p>
 
       <div class="arqueo-grid">
@@ -1408,21 +1419,12 @@
             <span class="arqueo-lbl">Total físico en caja</span>
             <span class="arqueo-val" style="font-weight:700" id="arqueoTotal">0,00 €</span>
           </div>
-          <div style="display:none"><span id="arqueoLucia"></span><span id="arqueoNeto"></span></div>
 
           <div class="arqueo-divider"></div>
 
           <div class="arqueo-row">
-            <span class="arqueo-lbl">Efectivo esperado (Cajas)</span>
-            <span class="arqueo-val" id="arqueoEsperado">—</span>
-          </div>
-          <div class="arqueo-row">
-            <span class="arqueo-lbl">− Tickets Lucía</span>
-            <span class="arqueo-val err" id="arqueoEsperadoLucia">—</span>
-          </div>
-          <div class="arqueo-row">
-            <span class="arqueo-lbl">= Esperado en caja</span>
-            <span class="arqueo-val" id="arqueoEsperadoNeto" style="font-weight:700">—</span>
+            <span class="arqueo-lbl">Efectivo esperado (Cajas física)</span>
+            <span class="arqueo-val" id="arqueoEsperado" style="font-weight:700">—</span>
           </div>
 
           <div class="arqueo-divider"></div>
@@ -3661,32 +3663,59 @@ function handleLuciaTicketsFile(evt) {
 // Cálculo del arqueo: recuento tecleado frente al efectivo esperado de los datos del mes. Es el único sitio
 // que lo calcula para lo que se VE (renderArqueo) y para lo que se GUARDA (saveArqueoSnapshot), de modo que
 // nunca pueden diferir (E-13). Estadísticas conserva su propia copia de la fórmula: es E-38 (fase 5).
-// Efectivo esperado en caja del mes actual: saldo inicial + Cajas (efectivo − cajero − gastos) + Libro, menos
-// los tickets de Lucía (salen por otra vía). Lo usan el arqueo y el registro del esperado de cada mes.
-function calcEfectivoActivo() {
-  // Total tickets Lucía del mes
-  let totalLucia = 0;
+// ─── Cajas física ──────────────────────────────────────────────────────────
+// Solo cuenta el dinero que ha pasado por la caja: el efectivo de las empleadas (y, desde la liquidación con
+// Lucía, lo que ella devuelve el día que se registra). Los tickets de Lucía y de las entidades no entran: son
+// pendientes de cobro (libro de pendientes) y no están físicamente en la caja. La hoja «Cajas» de siempre
+// sigue calculándose igual, con los tickets dentro, hasta nueva orden (en paralelo, mínimo 3 cierres de mes).
+function getDayEfectivoFisico(ds) {
+  const d = state.days[ds];
+  if (!d) return 0;
+  return d.employees.reduce((s, e) => esLucia(e.name) ? s : s + (e.efectivo || 0), 0);
+}
+
+// Tickets de los días del mes, repartidos por cómo llega el dinero (efectivo vía Lucía / transferencia).
+function calcTicketsMes() {
+  const t = {efectivo: 0, transferencia: 0};
   state.daysInMonth.forEach(ds => {
-    getTicketsDia(ds).forEach(t => {
-      totalLucia = Math.round((totalLucia + (t.importe||0))*100)/100;
+    getTicketsDia(ds).forEach(p => {
+      const k = p.pago === 'transferencia' ? 'transferencia' : 'efectivo';
+      t[k] = Math.round((t[k] + (p.importe||0))*100)/100;
     });
   });
+  return t;
+}
 
-  // Efectivo esperado = acumulado Cajas + Libro
+// Las dos cajas del mes y la línea de puente que las une:
+//   Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física.
+// `sinExplicar` es lo que sobra o falta para que el puente cuadre: debe ser 0.
+function calcCajaFisica() {
   const saldo0 = getSaldoInicial(state.month).valor;
-  let acumEsperado = saldo0;
+  const lt = getLibroTotals();
+  const filas = [];
+  let acumFisico = saldo0, acumActual = saldo0;
   state.daysInMonth.forEach(ds => {
-    const ef     = getDayEfectivo(ds);
+    const ef     = Math.round(getDayEfectivoFisico(ds)*100)/100;
     const gastos = state.days[ds]?.gastos||0;
     const cajero = state.cajero?.[ds]||0;
-    acumEsperado = Math.round((acumEsperado + ef - cajero - gastos)*100)/100;
+    acumFisico = Math.round((acumFisico + ef - cajero - gastos)*100)/100;
+    acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
+    filas.push({ds, ef, cajero, gastos, acum: acumFisico});
   });
-  // Aplicar libro (ya incluye el neto del libro)
-  acumEsperado = Math.round((acumEsperado + getLibroTotals().net)*100)/100;
+  // El neto del Libro entra igual en las dos
+  acumFisico = Math.round((acumFisico + lt.net)*100)/100;
+  acumActual = Math.round((acumActual + lt.net)*100)/100;
+  const tickets = calcTicketsMes();
+  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia)*100)/100;
+  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, resultado,
+          sinExplicar: Math.round((acumFisico - resultado)*100)/100};
+}
 
-  // Esperado neto = acumulado − tickets Lucía (salen por otra vía)
-  const esperadoNeto = Math.round((acumEsperado - totalLucia)*100)/100;
-  return {saldo0, acumEsperado, totalLucia, esperadoNeto};
+// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − cajero − gastos + Libro).
+// No resta nada: los pendientes nunca entraron (E-02). Lo usan el arqueo y el registro del esperado de cada mes.
+function calcEfectivoActivo() {
+  const c = calcCajaFisica();
+  return {saldo0: c.saldo0, acumEsperado: c.acumFisico, esperadoNeto: c.acumFisico};
 }
 
 function calcArqueo() {
@@ -3697,11 +3726,11 @@ function calcArqueo() {
     .some(id => document.getElementById(id).value !== '');
   const totalFisico = Math.round((monedas + cambio + billetes)*100)/100;
 
-  const {acumEsperado, totalLucia, esperadoNeto} = calcEfectivoActivo();
+  const {esperadoNeto} = calcEfectivoActivo();
 
-  // Diferencia = físico total − esperado neto
+  // Diferencia = recuento − esperado (Cajas física)
   const diff = Math.round((totalFisico - esperadoNeto)*100)/100;
-  return {monedas, cambio, billetes, hayRecuento, totalFisico, totalLucia, acumEsperado, esperadoNeto, diff};
+  return {monedas, cambio, billetes, hayRecuento, totalFisico, esperadoNeto, diff};
 }
 
 // Pinta el arqueo con los datos de ahora mismo. Se llama al abrir la pestaña y desde recalcAll (cambia el
@@ -3712,11 +3741,7 @@ function renderArqueo() {
   const etiqueta = document.getElementById('arqueoMesEtiqueta');
   if (etiqueta) etiqueta.textContent = state.month ? nombreMes(state.month) : 'este mes';
   document.getElementById('arqueoTotal').textContent       = fmt(c.totalFisico)+' €';
-  document.getElementById('arqueoLucia').textContent       = '−'+fmt(c.totalLucia)+' €';
-  document.getElementById('arqueoNeto').textContent        = fmt(c.totalFisico)+' €';
-  document.getElementById('arqueoEsperado').textContent    = fmt(c.acumEsperado)+' €';
-  document.getElementById('arqueoEsperadoLucia').textContent = '−'+fmt(c.totalLucia)+' €';
-  document.getElementById('arqueoEsperadoNeto').textContent  = fmt(c.esperadoNeto)+' €';
+  document.getElementById('arqueoEsperado').textContent    = fmt(c.esperadoNeto)+' €';
 
   const diffEl  = document.getElementById('arqueoDiff');
   const diffMsg = document.getElementById('arqueoDiffMsg');
@@ -4511,8 +4536,51 @@ function renderCajas() {
   }
   html += '</tbody>';
   tb.innerHTML = html;
+  renderCajasFisica();
   document.getElementById('emptyCajas').style.display = 'none';
   document.getElementById('cajasTable').style.display = 'block';
+}
+
+// Cajas física en pantalla, debajo de Cajas actual, y la línea de puente que las une.
+// La última columna enseña los tickets de cada día: no entran en Cajas física, y son justo la diferencia con Cajas actual.
+function renderCajasFisica() {
+  const c = calcCajaFisica();
+  let html = `<thead><tr>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
+  </tr></thead><tbody>`;
+  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
+  c.filas.forEach(f => {
+    const tk = getLuciaTotal(f.ds);
+    html += `<tr>
+      <td>${f.ds.slice(5)}</td>
+      <td style="text-align:left;color:var(--muted)">${f.ds}</td>
+      <td>${fmt(f.ef)}</td>
+      <td>${f.cajero ? `<span style="color:var(--err)">−${fmt(f.cajero)}</span>` : '—'}</td>
+      <td>${f.gastos ? `<span style="color:var(--warn)">−${fmt(f.gastos)}</span>` : '—'}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(f.acum)}</td>
+      <td style="color:var(--muted)">${tk ? fmt(tk) : '—'}</td>
+    </tr>`;
+  });
+  if (c.libro !== 0) {
+    const gastoStr = c.libro < 0
+      ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
+      : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
+    html += `<tr style="background:var(--gold-lt);font-weight:600">
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
+    </tr>`;
+  }
+  document.getElementById('tCajasFisica').innerHTML = html + '</tbody>';
+
+  let p = `<thead><tr><th style="text-align:left">Concepto</th><th>Importe</th></tr></thead><tbody>`;
+  p += `<tr><td style="text-align:left">Efectivo total de Cajas actual</td><td>${fmt(c.acumActual)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">− Tickets de Lucía en efectivo (pendientes de que los devuelva)</td><td style="color:var(--err)">−${fmt(c.tickets.efectivo)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">− Tickets por transferencia (entidades: entran en el banco, no en la caja)</td><td style="color:var(--err)">−${fmt(c.tickets.transferencia)} €</td></tr>`;
+  p += `<tr style="background:var(--gold-lt);font-weight:700"><td style="text-align:left">= Efectivo total de Cajas física</td><td style="color:var(--teal)">${fmt(c.resultado)} €</td></tr>`;
+  if (c.sinExplicar !== 0) {
+    p += `<tr style="font-weight:600"><td style="text-align:left;color:var(--err)">Sin explicar: Cajas física no coincide con el puente (suele ser un día con tickets cuya ficha no incluye a Lucía)</td><td style="color:var(--err)">${(c.sinExplicar>0?'+':'')+fmt(c.sinExplicar)} €</td></tr>`;
+  }
+  document.getElementById('tCajasPuente').innerHTML = p + '</tbody>';
 }
 
 
@@ -4926,6 +4994,80 @@ function exportExcelCore() {
   }
   fmtSheet(wsC2, [3,12,20,10,10,8,13]);
   XLSX.utils.book_append_sheet(wb, wsC2, 'Cajas');
+
+  // ── 4a. CAJAS FÍSICA (en paralelo a «Cajas», que no se toca) ──────────────
+  // Misma tabla, pero solo con el dinero que ha pasado por la caja (sin los tickets de Lucía ni de las
+  // entidades) y una última columna con los tickets del día, que no entran. Debajo, el puente que la une
+  // con «Cajas». Usa el mismo cálculo que la pestaña Cajas y el arqueo (calcCajaFisica).
+  {
+    const cf = calcCajaFisica();
+    const cfRows = [
+      ['','','','','','','',''],
+      ['','','',monthName+' · Cajas física','','','',''],
+      ['','','','','','','',''],
+      ['','Fecha','Concepto','Caja','Caixa','Gastos','Efectivo total','Tickets del día (no entran)'],
+      ['','','Inicio','','','',n2(cf.saldo0),''],
+    ];
+    cf.filas.forEach(f => {
+      cfRows.push(['', dateSerial(f.ds), f.ds, n2(f.ef), n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
+    });
+    const cfLibroRow = cfRows.length;
+    cfRows.push(['','','Libro','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
+
+    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física
+    cfRows.push(['','','','','','','','']);
+    const cfPuenteHdr = cfRows.length;
+    cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','Importe','']);
+    const cfPuente = [
+      ['Efectivo total de la hoja Cajas', n2(cf.acumActual), {}],
+      ['− Tickets de Lucía en efectivo (pendientes)', 0 - n2(cf.tickets.efectivo), {}],
+      ['− Tickets por transferencia (van al banco)', 0 - n2(cf.tickets.transferencia), {}],
+      ['= Efectivo total de Cajas física', n2(cf.resultado), {bold:true, bg:GOLD_LT}],
+    ];
+    if (cf.sinExplicar !== 0) {
+      cfPuente.push(['Sin explicar (Cajas física no coincide con el puente)', n2(cf.sinExplicar), {bold:true, fontColor:'FFC00000'}]);
+    }
+    const cfPuenteFirst = cfRows.length;
+    cfPuente.forEach(p => cfRows.push(['', p[0], '', '', '', '', p[1], '']));
+
+    const wsCF = XLSX.utils.aoa_to_sheet(cfRows);
+    headerRow(wsCF, 3, 1, 7);
+    euroRow(wsCF, 4, 2, 7, BLUE_LT);
+    const cfBorder = {top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}};
+    for (let r=5; r<cfLibroRow; r++) {
+      const bg3 = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+      const dC = wsCF[XLSX.utils.encode_cell({r, c:1})];
+      if (dC && typeof dC.v==='number') { dC.t='n'; dC.z=FMT_DATE;
+        dC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'center',vertical:'center'},border:cfBorder}; }
+      const cC = wsCF[XLSX.utils.encode_cell({r, c:2})];
+      if (cC) cC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'left',vertical:'center'},border:cfBorder};
+      euroRow(wsCF, r, 3, 7, bg3);
+      const etF = wsCF[XLSX.utils.encode_cell({r, c:6})];
+      if (etF) etF.s={font:{bold:true,name:'Arial',sz:10,color:{rgb:'FF086C74'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
+      const tkF = wsCF[XLSX.utils.encode_cell({r, c:7})];
+      if (tkF) tkF.s={font:{italic:true,name:'Arial',sz:10,color:{rgb:'FF7F7F7F'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
+    }
+    for (let c=1; c<=7; c++) {
+      const lF = wsCF[XLSX.utils.encode_cell({r:cfLibroRow, c})];
+      if (lF) { if(typeof lF.v==='number'){lF.t='n';lF.z=FMT_EUR;}
+        lF.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:c===2?'left':'right',vertical:'center'},
+          border:{top:{style:'medium',color:{rgb:'FF086C74'}},bottom:{style:'medium',color:{rgb:'FF086C74'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}}; }
+    }
+    // Bloque del puente: la etiqueta ocupa de B a F (celdas combinadas) y el importe va en G
+    wsCF['!merges'] = [];
+    for (let c=2; c<=5; c++) wsCF[XLSX.utils.encode_cell({r:cfPuenteHdr, c})] = {t:'s', v:''};
+    headerRow(wsCF, cfPuenteHdr, 1, 6);
+    wsCF['!merges'].push({s:{r:cfPuenteHdr,c:1}, e:{r:cfPuenteHdr,c:5}});
+    cfPuente.forEach((p, i) => {
+      const r = cfPuenteFirst + i, o = p[2];
+      setCell(wsCF, r, 1, p[0], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, align:'left'});
+      for (let c=2; c<=5; c++) setCell(wsCF, r, c, '', {bg:o.bg||null});
+      setCell(wsCF, r, 6, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
+      wsCF['!merges'].push({s:{r,c:1}, e:{r,c:5}});
+    });
+    fmtSheet(wsCF, [3,12,20,10,10,8,13,26]);
+    XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
+  }
 
   // ── 4b. HOJA LIBRO (después de Cajas)
   // (moved here, generated below)
