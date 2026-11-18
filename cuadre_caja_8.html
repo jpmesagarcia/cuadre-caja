@@ -5072,42 +5072,45 @@ function exportExcelCore() {
   // ── 4a. CAJAS FÍSICA (en paralelo a «Cajas», que no se toca) ──────────────
   // Misma tabla, pero solo con el dinero que ha pasado por la caja (sin los tickets de Lucía ni de las
   // entidades) y una última columna con los tickets del día, que no entran. Debajo, el puente que la une
-  // con «Cajas». Usa el mismo cálculo que la pestaña Cajas y el arqueo (calcCajaFisica).
+  // con «Cajas». Usa el mismo cálculo que la pestaña Cajas y el arqueo (calcCajaFisica). La columna «Devoluciones
+  // de Lucía» es el dinero que ya ha entregado: entra en el total (los tickets, no).
   {
     const cf = calcCajaFisica();
     const cfRows = [
-      ['','','','','','','',''],
-      ['','','',monthName+' · Cajas física','','','',''],
-      ['','','','','','','',''],
-      ['','Fecha','Concepto','Caja','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
-      ['','','Inicio','','','',n2(cf.saldo0),''],
+      ['','','','','','','','',''],
+      ['','','',monthName+' · Cajas física','','','','',''],
+      ['','','','','','','','',''],
+      ['','Fecha','Concepto','Caja','Devoluciones de Lucía','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
+      ['','','Inicio','','','','',n2(cf.saldo0),''],
     ];
     cf.filas.forEach(f => {
-      cfRows.push(['', dateSerial(f.ds), f.ds, n2(f.ef), n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
+      cfRows.push(['', dateSerial(f.ds), f.ds + (f.dev ? ' · Lucía devuelve' : '') + (f.ficha ? '' : ' · sin ficha de efectivo'),
+        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
     });
     const cfLibroRow = cfRows.length;
-    cfRows.push(['','','Libro (sí entra en el total)','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
+    cfRows.push(['','','Libro (sí entra en el total)','','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
 
-    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
-    cfRows.push(['','','','','','','','']);
+    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes + devoluciones de Lucía = Cajas física
+    cfRows.push(['','','','','','','','','']);
     const cfPuenteHdr = cfRows.length;
-    cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','Importe','']);
+    cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','','Importe','']);
     const cfPuente = [
       ['Efectivo total de la hoja Cajas', n2(cf.acumActual), {}],
       ['− Tickets de Lucía en efectivo (pendientes)', 0 - n2(cf.tickets.efectivo), {}],
       ['− Tickets por transferencia (van al banco)', 0 - n2(cf.tickets.transferencia), {}],
       ['+ Gastos del mes (ya fuera del efectivo apuntado)', n2(cf.gastosMes), {}],
+      ['+ Devoluciones de Lucía registradas en el mes (dinero ya entregado)', n2(cf.devolucionesMes), {}],
       ['= Efectivo total de Cajas física', n2(cf.resultado), {bold:true, bg:GOLD_LT}],
     ];
     if (cf.sinExplicar !== 0) {
       cfPuente.push(['Sin explicar (Cajas física no coincide con el puente)', n2(cf.sinExplicar), {bold:true, fontColor:'FFC00000'}]);
     }
     const cfPuenteFirst = cfRows.length;
-    cfPuente.forEach(p => cfRows.push(['', p[0], '', '', '', '', p[1], '']));
+    cfPuente.forEach(p => cfRows.push(['', p[0], '', '', '', '', '', p[1], '']));
 
     const wsCF = XLSX.utils.aoa_to_sheet(cfRows);
-    headerRow(wsCF, 3, 1, 7);
-    euroRow(wsCF, 4, 2, 7, BLUE_LT);
+    headerRow(wsCF, 3, 1, 8);
+    euroRow(wsCF, 4, 2, 8, BLUE_LT);
     const cfBorder = {top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}};
     for (let r=5; r<cfLibroRow; r++) {
       const bg3 = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
@@ -5116,31 +5119,31 @@ function exportExcelCore() {
         dC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'center',vertical:'center'},border:cfBorder}; }
       const cC = wsCF[XLSX.utils.encode_cell({r, c:2})];
       if (cC) cC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'left',vertical:'center'},border:cfBorder};
-      euroRow(wsCF, r, 3, 7, bg3);
-      const etF = wsCF[XLSX.utils.encode_cell({r, c:6})];
+      euroRow(wsCF, r, 3, 8, bg3);
+      const etF = wsCF[XLSX.utils.encode_cell({r, c:7})];
       if (etF) etF.s={font:{bold:true,name:'Arial',sz:10,color:{rgb:'FF086C74'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
-      const tkF = wsCF[XLSX.utils.encode_cell({r, c:7})];
+      const tkF = wsCF[XLSX.utils.encode_cell({r, c:8})];
       if (tkF) tkF.s={font:{italic:true,name:'Arial',sz:10,color:{rgb:'FF7F7F7F'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
     }
-    for (let c=1; c<=7; c++) {
+    for (let c=1; c<=8; c++) {
       const lF = wsCF[XLSX.utils.encode_cell({r:cfLibroRow, c})];
       if (lF) { if(typeof lF.v==='number'){lF.t='n';lF.z=FMT_EUR;}
         lF.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:c===2?'left':'right',vertical:'center'},
           border:{top:{style:'medium',color:{rgb:'FF086C74'}},bottom:{style:'medium',color:{rgb:'FF086C74'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}}; }
     }
-    // Bloque del puente: la etiqueta ocupa de B a F (celdas combinadas) y el importe va en G
+    // Bloque del puente: la etiqueta ocupa de B a G (celdas combinadas) y el importe va en H
     wsCF['!merges'] = [];
-    for (let c=2; c<=5; c++) wsCF[XLSX.utils.encode_cell({r:cfPuenteHdr, c})] = {t:'s', v:''};
-    headerRow(wsCF, cfPuenteHdr, 1, 6);
-    wsCF['!merges'].push({s:{r:cfPuenteHdr,c:1}, e:{r:cfPuenteHdr,c:5}});
+    for (let c=2; c<=6; c++) wsCF[XLSX.utils.encode_cell({r:cfPuenteHdr, c})] = {t:'s', v:''};
+    headerRow(wsCF, cfPuenteHdr, 1, 7);
+    wsCF['!merges'].push({s:{r:cfPuenteHdr,c:1}, e:{r:cfPuenteHdr,c:6}});
     cfPuente.forEach((p, i) => {
       const r = cfPuenteFirst + i, o = p[2];
       setCell(wsCF, r, 1, p[0], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, align:'left'});
-      for (let c=2; c<=5; c++) setCell(wsCF, r, c, '', {bg:o.bg||null});
-      setCell(wsCF, r, 6, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
-      wsCF['!merges'].push({s:{r,c:1}, e:{r,c:5}});
+      for (let c=2; c<=6; c++) setCell(wsCF, r, c, '', {bg:o.bg||null});
+      setCell(wsCF, r, 7, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
+      wsCF['!merges'].push({s:{r,c:1}, e:{r,c:6}});
     });
-    fmtSheet(wsCF, [3,12,30,10,10,18,13,26]);
+    fmtSheet(wsCF, [3,12,30,10,14,10,18,13,26]);
     XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
   }
 
