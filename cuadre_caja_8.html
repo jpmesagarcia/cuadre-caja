@@ -4565,7 +4565,7 @@ function renderCajasFisica() {
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
       : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
     html += `<tr style="background:var(--gold-lt);font-weight:600">
-      <td>—</td><td style="text-align:left;color:var(--teal)">Libro</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>${gastoStr}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
     </tr>`;
   }
@@ -5005,16 +5005,16 @@ function exportExcelCore() {
       ['','','','','','','',''],
       ['','','',monthName+' · Cajas física','','','',''],
       ['','','','','','','',''],
-      ['','Fecha','Concepto','Caja','Caixa','Gastos','Efectivo total','Tickets del día (no entran)'],
+      ['','Fecha','Concepto','Caja','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
       ['','','Inicio','','','',n2(cf.saldo0),''],
     ];
     cf.filas.forEach(f => {
       cfRows.push(['', dateSerial(f.ds), f.ds, n2(f.ef), n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
     });
     const cfLibroRow = cfRows.length;
-    cfRows.push(['','','Libro','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
+    cfRows.push(['','','Libro (sí entra en el total)','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
 
-    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física
+    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
     cfRows.push(['','','','','','','','']);
     const cfPuenteHdr = cfRows.length;
     cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','Importe','']);
@@ -5022,6 +5022,7 @@ function exportExcelCore() {
       ['Efectivo total de la hoja Cajas', n2(cf.acumActual), {}],
       ['− Tickets de Lucía en efectivo (pendientes)', 0 - n2(cf.tickets.efectivo), {}],
       ['− Tickets por transferencia (van al banco)', 0 - n2(cf.tickets.transferencia), {}],
+      ['+ Gastos del mes (ya fuera del efectivo apuntado)', n2(cf.gastosMes), {}],
       ['= Efectivo total de Cajas física', n2(cf.resultado), {bold:true, bg:GOLD_LT}],
     ];
     if (cf.sinExplicar !== 0) {
@@ -5065,7 +5066,7 @@ function exportExcelCore() {
       setCell(wsCF, r, 6, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
       wsCF['!merges'].push({s:{r,c:1}, e:{r,c:5}});
     });
-    fmtSheet(wsCF, [3,12,20,10,10,8,13,26]);
+    fmtSheet(wsCF, [3,12,30,10,10,18,13,26]);
     XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
   }
 
