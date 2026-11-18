@@ -735,6 +735,17 @@
   body.dark .pend-badge.pen { background:#3a3118; color:#e6c36a; }
   .pend-del { background:none; border:none; cursor:pointer; color:var(--muted2); font-size:.9rem; padding:0 6px; }
   .pend-del:hover { color:var(--err); }
+  .liq-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px 18px; margin:4px 0 22px; }
+  .liq-card h3 { font-family:'Cormorant Garamond',serif; font-size:1.2rem; color:var(--teal); margin:0 0 4px; }
+  .liq-form { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin:14px 0 8px; }
+  .liq-form label { display:flex; flex-direction:column; gap:3px; font-size:.72rem; color:var(--muted); }
+  .liq-form input { background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:6px 8px; border-radius:5px; font-family:'Jost',sans-serif; font-size:.82rem; }
+  .liq-form input.nota { min-width:220px; }
+  .liq-resumen { font-size:.82rem; margin:6px 0 10px; }
+  .liq-resumen .liq-aviso { color:var(--err); font-weight:600; }
+  .liq-resumen .liq-ok { color:var(--teal); font-weight:600; }
+  .liq-mes td { background:var(--teal-lt); font-weight:600; }
+  .liq-tabla { max-height:340px; overflow:auto; margin-bottom:6px; }
   .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
@@ -1457,10 +1468,27 @@
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:16px">
         Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
         Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
-        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Marcarlos como cobrados llegará con la
-        liquidación con Lucía y la conciliación con el banco.
+        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Los de efectivo se marcan como cobrados
+        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, con la conciliación con el banco (llegará).
       </p>
       <div class="stats-grid" id="pendTotales"></div>
+      <div class="liq-card" id="liqCard">
+        <h3>💵 Liquidación con Lucía</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin:0">
+          Lo que Lucía devuelve en efectivo, normalmente todo de una vez a final de mes. Están marcados todos sus pendientes:
+          desmarca los que falten. Al registrarla, esos tickets pasan a cobrados y el dinero entra en <b>Cajas física</b> y en el arqueo
+          el día de la entrega. El cuadre de cada día no cambia.
+        </p>
+        <div id="liqLista" class="liq-tabla"></div>
+        <div class="liq-form">
+          <label>Fecha de la entrega <input type="date" id="liqFecha" oninput="liqCambio()"></label>
+          <label>Importe entregado (€) <input type="number" id="liqImporte" step="0.01" min="0" style="width:130px" oninput="liqImporteTecleado()"></label>
+          <label>Nota <input type="text" id="liqNota" class="nota" maxlength="120" placeholder="—"></label>
+          <button class="btn" id="liqBtn" onclick="liqRegistrar()">Registrar liquidación</button>
+        </div>
+        <div id="liqResumen" class="liq-resumen"></div>
+        <div id="liqHistorial"></div>
+      </div>
       <div class="pend-filtros">
         <select id="pendEstado" onchange="renderPendientes()">
           <option value="pendiente">Pendientes</option>
@@ -1887,6 +1915,7 @@ function renderPendientes() {
     `<div class="kpi-card"><div class="kpi-label">Total pendiente</div>
        <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
        <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
+  renderLiquidacion();
   document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
 
   // meses con apuntes (por fecha de la venta)
@@ -1935,6 +1964,131 @@ function renderPendientes() {
         <td><input type="checkbox" ${c.entidad ? 'checked' : ''} onchange="pendToggleEntidad(${i}, this.checked)"></td>
         <td class="num">${deben.length ? fmt(sumar2(deben)) + ' €' : '—'}</td></tr>`;
     }).join('') + '</tbody></table>';
+}
+
+// ─── Pantalla de la liquidación con Lucía ──────────────────────────────────
+// Solo de pantalla (no se guarda): qué tickets se han desmarcado (los nuevos nacen marcados), y si el importe
+// entregado lo ha tecleado la persona (si no, es siempre la suma de los marcados).
+const liqPant = { desmarcados: new Set(), importeManual: false };
+
+function hoyLocalISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function liqMarcados() {
+  return getPendientesEfectivo().filter(p => !liqPant.desmarcados.has(p.id));
+}
+
+function renderLiquidacion() {
+  const lista = document.getElementById('liqLista'); if (!lista) return;
+  const fecha = document.getElementById('liqFecha');
+  if (!fecha.value) fecha.value = hoyLocalISO();
+  const pend = getPendientesEfectivo();
+  if (!pend.length) {
+    lista.innerHTML = '<div class="empty-state" style="padding:14px"><p>Lucía no debe nada en efectivo.</p></div>';
+  } else {
+    const meses = [...new Set(pend.map(p => p.fecha.slice(0, 7)))].sort();
+    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+    meses.forEach(m => {
+      const delMes = pend.filter(p => p.fecha.startsWith(m)).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || (a.fecha < b.fecha ? -1 : 1));
+      const marc = delMes.filter(p => !liqPant.desmarcados.has(p.id));
+      h += `<tr class="liq-mes"><td><input type="checkbox" ${marc.length === delMes.length ? 'checked' : ''} onchange="liqToggleMes('${m}', this.checked)"></td>
+        <td colspan="2">${escHtml(nombreMes(m))} · ${marc.length} de ${delMes.length} marcados</td><td class="num">${fmt(sumar2(marc))} €</td></tr>`;
+      delMes.forEach(p => {
+        h += `<tr><td><input type="checkbox" ${liqPant.desmarcados.has(p.id) ? '' : 'checked'} onchange="liqToggle('${p.id}', this.checked)"></td>
+          <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`;
+      });
+    });
+    lista.innerHTML = h + '</tbody></table>';
+  }
+  liqActualizarResumen();
+  renderLiquidacionHistorial();
+}
+
+// Recalcula el importe propuesto, el aviso de diferencia y el botón, sin tocar la lista (así no se pierde el foco al teclear).
+function liqActualizarResumen() {
+  const marc = liqMarcados();
+  const suma = sumar2(marc);
+  const inp = document.getElementById('liqImporte');
+  if (!liqPant.importeManual) inp.value = marc.length ? suma.toFixed(2) : '';
+  const entregado = inp.value === '' ? NaN : Math.round(parseFloat(inp.value) * 100) / 100;
+  const fecha = document.getElementById('liqFecha').value;
+  const res = document.getElementById('liqResumen');
+  const masReciente = marc.length ? marc.map(p => p.fecha).sort().pop() : null;
+  const dif = Math.round((entregado - suma) * 100) / 100;
+  let t = marc.length
+    ? `${marc.length} ticket${marc.length === 1 ? '' : 's'} marcado${marc.length === 1 ? '' : 's'}: suman <b>${fmt(suma)} €</b>.`
+    : 'No hay ningún ticket marcado.';
+  if (marc.length && !isNaN(entregado)) {
+    t += dif === 0
+      ? ' <span class="liq-ok">✓ Coincide con lo entregado.</span>'
+      : ` <span class="liq-aviso">⚠️ No coincide: Lucía entrega ${fmt(Math.abs(dif))} € ${dif < 0 ? 'menos' : 'más'} que la suma de los tickets.</span> Se registra tal cual y la diferencia queda en el historial.`;
+  }
+  if (masReciente && fecha && fecha < masReciente) t += ` <span class="liq-aviso">⚠️ La fecha de la entrega es anterior a un ticket marcado (${fechaDMA(masReciente)}).</span>`;
+  res.innerHTML = t;
+  document.getElementById('liqBtn').disabled = !(marc.length && fecha && !isNaN(entregado) && entregado >= 0);
+}
+
+function renderLiquidacionHistorial() {
+  const el = document.getElementById('liqHistorial'); if (!el) return;
+  if (!state.liquidaciones.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<h4 style="font-size:.82rem;color:var(--teal);margin:14px 0 6px">Liquidaciones registradas</h4>' +
+    '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Tickets</th><th style="text-align:right">Suma</th><th style="text-align:right">Entregado</th><th style="text-align:right">Diferencia</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    [...state.liquidaciones].reverse().map(l => {
+      const suma = getSumaLiquidacion(l), dif = Math.round((l.importe - suma) * 100) / 100;
+      return `<tr><td class="mono">${fechaDMA(l.fecha)}</td><td>${l.ticketIds.length}</td><td class="num">${fmt(suma)} €</td><td class="num">${fmt(l.importe)} €</td>
+        <td class="num" style="${dif ? 'color:var(--err);font-weight:600' : ''}">${dif ? (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €' : '—'}</td>
+        <td>${escHtml(l.nota) || '—'}</td>
+        <td><button class="pend-del" title="Deshacer: los tickets vuelven a pendientes y el dinero sale de Cajas física" onclick="liqDeshacer('${l.id}')">↩ Deshacer</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function liqToggle(id, marcado) {
+  if (marcado) liqPant.desmarcados.delete(id); else liqPant.desmarcados.add(id);
+  liqPant.importeManual = false;       // al cambiar la selección, el importe vuelve a ser la suma
+  renderLiquidacion();
+}
+
+function liqToggleMes(mes, marcado) {
+  getPendientesEfectivo().filter(p => p.fecha.startsWith(mes)).forEach(p => { if (marcado) liqPant.desmarcados.delete(p.id); else liqPant.desmarcados.add(p.id); });
+  liqPant.importeManual = false;
+  renderLiquidacion();
+}
+
+function liqImporteTecleado() { liqPant.importeManual = true; liqActualizarResumen(); }
+function liqCambio() { liqActualizarResumen(); }
+
+function liqRegistrar() {
+  const marc = liqMarcados();
+  const fecha = document.getElementById('liqFecha').value;
+  const raw = document.getElementById('liqImporte').value;
+  const importe = raw === '' ? NaN : parseFloat(raw);
+  if (!marc.length || !fecha || isNaN(importe) || importe < 0) return;
+  const suma = sumar2(marc), dif = Math.round((importe - suma) * 100) / 100;
+  if (dif !== 0 && !confirm('Lucía entrega ' + fmt(importe) + ' € y los ' + marc.length + ' tickets suman ' + fmt(suma) + ' € (diferencia de ' + (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €).\n\nEl dinero que entra en la caja es lo entregado (' + fmt(importe) + ' €) y la diferencia queda anotada en el historial.\n\n¿Registrar la liquidación?')) return;
+  const liq = registrarLiquidacion({ fecha, importe, ticketIds: marc.map(p => p.id), nota: document.getElementById('liqNota').value });
+  if (!liq) { alert('No se ha podido registrar la liquidación: algún ticket ya no está pendiente en efectivo. No se ha cambiado nada.'); renderPendientes(); return; }
+  liqPant.desmarcados.clear(); liqPant.importeManual = false;
+  document.getElementById('liqNota').value = '';
+  liqTrasCambio();
+  toast('✅ Liquidación registrada: ' + fmt(liq.importe) + ' € entran en Cajas física el ' + fechaDMA(liq.fecha));
+}
+
+function liqDeshacer(id) {
+  const l = state.liquidaciones.find(x => x.id === id); if (!l) return;
+  if (!confirm('¿Deshacer la liquidación del ' + fechaDMA(l.fecha) + ' (' + fmt(l.importe) + ' €, ' + l.ticketIds.length + ' tickets)?\n\nLos tickets vuelven a pendientes y ese dinero deja de contar en Cajas física y en el arqueo.')) return;
+  deshacerLiquidacion(id);
+  liqPant.desmarcados.clear(); liqPant.importeManual = false;
+  liqTrasCambio();
+  toast('↩ Liquidación deshecha');
+}
+
+// Lo que depende de las liquidaciones: la lista, Cajas física, el arqueo y la tarjeta del día abierto (los tickets cobrados no se borran).
+function liqTrasCambio() {
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) renderLuciaSection(ds);
+  recalcAll(); renderDayGrid(); saveState(); renderPendientes();
 }
 
 function pendCambiarPago(id, pago) {
@@ -4412,7 +4566,7 @@ function renderLuciaSection(ds) {
       <div class="lucia-ticket">
         <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${escHtml(t.cliente)}</span>
         <span class="t-amount">${fmt(t.importe)} €</span>
-        <button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>
+        ${t.estado === 'cobrado' ? `<span class="pend-badge" title="Cobrado el ${fechaDMA(t.fechaCobro)}: ya está en una liquidación">Cobrado</span>` : `<button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>`}
       </div>`).join('');
   }
   // Sync Lucía employee efectivo with ticket total
