@@ -3744,34 +3744,44 @@ function calcTicketsMes() {
 }
 
 // Las dos cajas del mes y la línea de puente que las une:
-//   Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
-// (los gastos se suman porque Cajas actual los resta y Cajas física no).
+//   Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes + devoluciones de Lucía = Cajas física
+// (los gastos se suman porque Cajas actual los resta y Cajas física no; las devoluciones de Lucía, porque el
+// dinero que entrega entra en la caja física pero Cajas actual no lo conoce: ya contó sus tickets el día de la venta).
 // `sinExplicar` es lo que sobra o falta para que el puente cuadre: debe ser 0.
+// Las filas son los días con datos de Farmatic del mes más los días en que Lucía entregó dinero, aunque ese día no
+// haya ficha (domingo, festivo): una devolución nunca se queda fuera por la fecha.
 function calcCajaFisica() {
   const saldo0 = getSaldoInicial(state.month).valor;
   const lt = getLibroTotals();
+  const conFicha = new Set(state.daysInMonth);
+  const fechas = [...new Set([...state.daysInMonth,
+    ...state.liquidaciones.filter(l => state.month && l.fecha.startsWith(state.month)).map(l => l.fecha)])].sort();
   const filas = [];
-  let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0;
-  state.daysInMonth.forEach(ds => {
-    const ef     = Math.round(getDayEfectivoFisico(ds)*100)/100;
-    const gastos = state.days[ds]?.gastos||0;
-    const cajero = state.cajero?.[ds]||0;
-    acumFisico = Math.round((acumFisico + ef - cajero)*100)/100;                       // los gastos no restan (E-47)
-    acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
+  let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0, devolucionesMes = 0;
+  fechas.forEach(ds => {
+    const ficha  = conFicha.has(ds);
+    const ef     = ficha ? Math.round(getDayEfectivoFisico(ds)*100)/100 : 0;
+    const gastos = ficha ? (state.days[ds]?.gastos||0) : 0;
+    const cajero = ficha ? (state.cajero?.[ds]||0) : 0;
+    const dev    = getDevolucionesDia(ds);
+    acumFisico = Math.round((acumFisico + ef + dev - cajero)*100)/100;                 // los gastos no restan (E-47)
+    if (ficha) acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
     gastosMes  = Math.round((gastosMes + gastos)*100)/100;
-    filas.push({ds, ef, cajero, gastos, acum: acumFisico});
+    devolucionesMes = Math.round((devolucionesMes + dev)*100)/100;
+    filas.push({ds, ef, cajero, gastos, dev, ficha, acum: acumFisico});
   });
   // El neto del Libro entra igual en las dos
   acumFisico = Math.round((acumFisico + lt.net)*100)/100;
   acumActual = Math.round((acumActual + lt.net)*100)/100;
   const tickets = calcTicketsMes();
-  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes)*100)/100;
-  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, resultado,
+  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes + devolucionesMes)*100)/100;
+  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
           sinExplicar: Math.round((acumFisico - resultado)*100)/100};
 }
 
-// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − ingresos en cajero + Libro).
+// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo + devoluciones de Lucía − ingresos en cajero + Libro).
 // No resta tickets (E-02) ni gastos (E-47): ninguno de los dos está en el efectivo que apuntan las empleadas.
+// Suma lo que Lucía ya ha devuelto (E-01): ese dinero sí está en la caja.
 // Lo usan el arqueo y el registro del esperado de cada mes.
 function calcEfectivoActivo() {
   const c = calcCajaFisica();
@@ -4603,18 +4613,20 @@ function renderCajas() {
 
 // Cajas física en pantalla, debajo de Cajas actual, y la línea de puente que las une.
 // La última columna enseña los tickets de cada día: no entran en Cajas física, y son justo la diferencia con Cajas actual.
+// Las devoluciones de Lucía sí entran: son el dinero de esos tickets cuando por fin llega a la caja.
 function renderCajasFisica() {
   const c = calcCajaFisica();
   let html = `<thead><tr>
-    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos (no restan)</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Devoluciones de Lucía</th><th>Caixa</th><th>Gastos (no restan)</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
   </tr></thead><tbody>`;
-  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
+  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
   c.filas.forEach(f => {
     const tk = getLuciaTotal(f.ds);
     html += `<tr>
       <td>${f.ds.slice(5)}</td>
-      <td style="text-align:left;color:var(--muted)">${f.ds}</td>
-      <td>${fmt(f.ef)}</td>
+      <td style="text-align:left;color:var(--muted)">${f.ds}${f.dev ? ' · Lucía devuelve' : ''}${f.ficha ? '' : ' · sin ficha de efectivo'}</td>
+      <td>${f.ficha ? fmt(f.ef) : '—'}</td>
+      <td>${f.dev ? `<span style="color:var(--teal);font-weight:600">+${fmt(f.dev)}</span>` : '—'}</td>
       <td>${f.cajero ? `<span style="color:var(--err)">−${fmt(f.cajero)}</span>` : '—'}</td>
       <td style="color:var(--muted)">${f.gastos ? fmt(f.gastos) : '—'}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(f.acum)}</td>
@@ -4626,7 +4638,7 @@ function renderCajasFisica() {
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
       : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
     html += `<tr style="background:var(--gold-lt);font-weight:600">
-      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>—</td><td>${gastoStr}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
     </tr>`;
   }
@@ -4637,6 +4649,7 @@ function renderCajasFisica() {
   p += `<tr><td style="text-align:left">− Tickets de Lucía en efectivo (pendientes de que los devuelva)</td><td style="color:var(--err)">−${fmt(c.tickets.efectivo)} €</td></tr>`;
   p += `<tr><td style="text-align:left">− Tickets por transferencia (entidades: entran en el banco, no en la caja)</td><td style="color:var(--err)">−${fmt(c.tickets.transferencia)} €</td></tr>`;
   p += `<tr><td style="text-align:left">+ Gastos del mes (las empleadas cuentan la caja después de sacar ese dinero)</td><td style="color:var(--teal)">+${fmt(c.gastosMes)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">+ Devoluciones de Lucía registradas en el mes (el dinero que ya ha entregado)</td><td style="color:var(--teal)">+${fmt(c.devolucionesMes)} €</td></tr>`;
   p += `<tr style="background:var(--gold-lt);font-weight:700"><td style="text-align:left">= Efectivo total de Cajas física</td><td style="color:var(--teal)">${fmt(c.resultado)} €</td></tr>`;
   if (c.sinExplicar !== 0) {
     p += `<tr style="font-weight:600"><td style="text-align:left;color:var(--err)">Sin explicar: Cajas física no coincide con el puente (suele ser un día con tickets cuya ficha no incluye a Lucía)</td><td style="color:var(--err)">${(c.sinExplicar>0?'+':'')+fmt(c.sinExplicar)} €</td></tr>`;
