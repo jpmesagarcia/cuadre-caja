@@ -1376,7 +1376,7 @@
         <span class="chip" id="arqueoChip">—</span>
       </div>
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:20px">
-        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Se compara con Cajas física, que solo cuenta el dinero que ha pasado por la caja: los tickets pendientes de Lucía y de las entidades no entran, así que no hay nada que restar.
+        Recuento físico del dinero en caja de <b id="arqueoMesEtiqueta">este mes</b>, al cierre. Se compara con Cajas física, que solo cuenta el dinero que ha pasado por la caja: ni los tickets pendientes de Lucía y de las entidades ni los gastos del día (que las empleadas ya han sacado antes de contar) entran, así que no hay nada que restar.
       </p>
 
       <div class="arqueo-grid">
@@ -3192,14 +3192,7 @@ function renderStats() {
   const arqueoMes = getArqueoMes(state.month);
   if (arqueoMes && (arqueoMes.monedas||arqueoMes.cambio||arqueoMes.billetes)) {
     const totalFisico = Math.round((arqueoMes.monedas+arqueoMes.cambio+arqueoMes.billetes)*100)/100;
-    const saldo0 = getSaldoInicial(state.month).valor;
-    let acumEsp = saldo0;
-    state.daysInMonth.forEach(ds => {
-      acumEsp = Math.round((acumEsp + getDayEfectivo(ds) - (state.cajero?.[ds]||0) - (state.days[ds]?.gastos||0))*100)/100;
-    });
-    const lt2 = getLibroTotals();
-    acumEsp = Math.round((acumEsp + lt2.net)*100)/100;
-    const netoEsp    = Math.round((acumEsp - totalTicketsLucia)*100)/100;
+    const netoEsp    = calcCajaFisica().acumFisico;   // el mismo esperado que el arqueo (antes era una copia de la fórmula)
     arqueoDiffStats  = Math.round((totalFisico - netoEsp)*100)/100;
   }
 
@@ -3666,8 +3659,11 @@ function handleLuciaTicketsFile(evt) {
 // ─── Cajas física ──────────────────────────────────────────────────────────
 // Solo cuenta el dinero que ha pasado por la caja: el efectivo de las empleadas (y, desde la liquidación con
 // Lucía, lo que ella devuelve el día que se registra). Los tickets de Lucía y de las entidades no entran: son
-// pendientes de cobro (libro de pendientes) y no están físicamente en la caja. La hoja «Cajas» de siempre
-// sigue calculándose igual, con los tickets dentro, hasta nueva orden (en paralelo, mínimo 3 cierres de mes).
+// pendientes de cobro (libro de pendientes) y no están físicamente en la caja. Los gastos del día tampoco se
+// restan: las empleadas cuentan la caja DESPUÉS de coger el dinero del gasto, así que el efectivo que apuntan
+// ya viene sin él (E-47). El cuadre del día los suma para compensar, y ahí siguen. La hoja «Cajas» de siempre
+// sigue calculándose igual, con los tickets dentro y restando los gastos, hasta nueva orden (en paralelo,
+// mínimo 3 cierres de mes).
 function getDayEfectivoFisico(ds) {
   const d = state.days[ds];
   if (!d) return 0;
@@ -3687,32 +3683,35 @@ function calcTicketsMes() {
 }
 
 // Las dos cajas del mes y la línea de puente que las une:
-//   Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física.
+//   Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
+// (los gastos se suman porque Cajas actual los resta y Cajas física no).
 // `sinExplicar` es lo que sobra o falta para que el puente cuadre: debe ser 0.
 function calcCajaFisica() {
   const saldo0 = getSaldoInicial(state.month).valor;
   const lt = getLibroTotals();
   const filas = [];
-  let acumFisico = saldo0, acumActual = saldo0;
+  let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0;
   state.daysInMonth.forEach(ds => {
     const ef     = Math.round(getDayEfectivoFisico(ds)*100)/100;
     const gastos = state.days[ds]?.gastos||0;
     const cajero = state.cajero?.[ds]||0;
-    acumFisico = Math.round((acumFisico + ef - cajero - gastos)*100)/100;
+    acumFisico = Math.round((acumFisico + ef - cajero)*100)/100;                       // los gastos no restan (E-47)
     acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
+    gastosMes  = Math.round((gastosMes + gastos)*100)/100;
     filas.push({ds, ef, cajero, gastos, acum: acumFisico});
   });
   // El neto del Libro entra igual en las dos
   acumFisico = Math.round((acumFisico + lt.net)*100)/100;
   acumActual = Math.round((acumActual + lt.net)*100)/100;
   const tickets = calcTicketsMes();
-  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia)*100)/100;
-  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, resultado,
+  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes)*100)/100;
+  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, resultado,
           sinExplicar: Math.round((acumFisico - resultado)*100)/100};
 }
 
-// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − cajero − gastos + Libro).
-// No resta nada: los pendientes nunca entraron (E-02). Lo usan el arqueo y el registro del esperado de cada mes.
+// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − ingresos en cajero + Libro).
+// No resta tickets (E-02) ni gastos (E-47): ninguno de los dos está en el efectivo que apuntan las empleadas.
+// Lo usan el arqueo y el registro del esperado de cada mes.
 function calcEfectivoActivo() {
   const c = calcCajaFisica();
   return {saldo0: c.saldo0, acumEsperado: c.acumFisico, esperadoNeto: c.acumFisico};
@@ -4546,7 +4545,7 @@ function renderCajas() {
 function renderCajasFisica() {
   const c = calcCajaFisica();
   let html = `<thead><tr>
-    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos (no restan)</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
   </tr></thead><tbody>`;
   html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
   c.filas.forEach(f => {
@@ -4556,7 +4555,7 @@ function renderCajasFisica() {
       <td style="text-align:left;color:var(--muted)">${f.ds}</td>
       <td>${fmt(f.ef)}</td>
       <td>${f.cajero ? `<span style="color:var(--err)">−${fmt(f.cajero)}</span>` : '—'}</td>
-      <td>${f.gastos ? `<span style="color:var(--warn)">−${fmt(f.gastos)}</span>` : '—'}</td>
+      <td style="color:var(--muted)">${f.gastos ? fmt(f.gastos) : '—'}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(f.acum)}</td>
       <td style="color:var(--muted)">${tk ? fmt(tk) : '—'}</td>
     </tr>`;
@@ -4566,7 +4565,7 @@ function renderCajasFisica() {
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
       : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
     html += `<tr style="background:var(--gold-lt);font-weight:600">
-      <td>—</td><td style="text-align:left;color:var(--teal)">Libro</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>${gastoStr}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
     </tr>`;
   }
@@ -4576,6 +4575,7 @@ function renderCajasFisica() {
   p += `<tr><td style="text-align:left">Efectivo total de Cajas actual</td><td>${fmt(c.acumActual)} €</td></tr>`;
   p += `<tr><td style="text-align:left">− Tickets de Lucía en efectivo (pendientes de que los devuelva)</td><td style="color:var(--err)">−${fmt(c.tickets.efectivo)} €</td></tr>`;
   p += `<tr><td style="text-align:left">− Tickets por transferencia (entidades: entran en el banco, no en la caja)</td><td style="color:var(--err)">−${fmt(c.tickets.transferencia)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">+ Gastos del mes (las empleadas cuentan la caja después de sacar ese dinero)</td><td style="color:var(--teal)">+${fmt(c.gastosMes)} €</td></tr>`;
   p += `<tr style="background:var(--gold-lt);font-weight:700"><td style="text-align:left">= Efectivo total de Cajas física</td><td style="color:var(--teal)">${fmt(c.resultado)} €</td></tr>`;
   if (c.sinExplicar !== 0) {
     p += `<tr style="font-weight:600"><td style="text-align:left;color:var(--err)">Sin explicar: Cajas física no coincide con el puente (suele ser un día con tickets cuya ficha no incluye a Lucía)</td><td style="color:var(--err)">${(c.sinExplicar>0?'+':'')+fmt(c.sinExplicar)} €</td></tr>`;
@@ -5005,16 +5005,16 @@ function exportExcelCore() {
       ['','','','','','','',''],
       ['','','',monthName+' · Cajas física','','','',''],
       ['','','','','','','',''],
-      ['','Fecha','Concepto','Caja','Caixa','Gastos','Efectivo total','Tickets del día (no entran)'],
+      ['','Fecha','Concepto','Caja','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
       ['','','Inicio','','','',n2(cf.saldo0),''],
     ];
     cf.filas.forEach(f => {
       cfRows.push(['', dateSerial(f.ds), f.ds, n2(f.ef), n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
     });
     const cfLibroRow = cfRows.length;
-    cfRows.push(['','','Libro','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
+    cfRows.push(['','','Libro (sí entra en el total)','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
 
-    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia = Cajas física
+    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
     cfRows.push(['','','','','','','','']);
     const cfPuenteHdr = cfRows.length;
     cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','Importe','']);
@@ -5022,6 +5022,7 @@ function exportExcelCore() {
       ['Efectivo total de la hoja Cajas', n2(cf.acumActual), {}],
       ['− Tickets de Lucía en efectivo (pendientes)', 0 - n2(cf.tickets.efectivo), {}],
       ['− Tickets por transferencia (van al banco)', 0 - n2(cf.tickets.transferencia), {}],
+      ['+ Gastos del mes (ya fuera del efectivo apuntado)', n2(cf.gastosMes), {}],
       ['= Efectivo total de Cajas física', n2(cf.resultado), {bold:true, bg:GOLD_LT}],
     ];
     if (cf.sinExplicar !== 0) {
@@ -5065,7 +5066,7 @@ function exportExcelCore() {
       setCell(wsCF, r, 6, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
       wsCF['!merges'].push({s:{r,c:1}, e:{r,c:5}});
     });
-    fmtSheet(wsCF, [3,12,20,10,10,8,13,26]);
+    fmtSheet(wsCF, [3,12,30,10,10,18,13,26]);
     XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
   }
 
