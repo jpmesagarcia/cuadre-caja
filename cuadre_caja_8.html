@@ -1240,18 +1240,24 @@
         <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
       </div>
       <div id="cajasTable" style="display:none">
-        <h3 class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajas"></table>
-        </div>
-        <h3 class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajasFisica"></table>
-        </div>
-        <h3 class="cajas-sub">Puente entre las dos</h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajasPuente"></table>
-        </div>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajas"></table>
+          </div>
+        </details>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajasFisica"></table>
+          </div>
+        </details>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Puente entre las dos</summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajasPuente"></table>
+          </div>
+        </details>
       </div>
     </div>
 
