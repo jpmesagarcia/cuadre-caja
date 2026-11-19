@@ -723,6 +723,12 @@
   .seg-table td { padding:8px 14px; vertical-align:middle; }
   .cajas-sub { font-family:'Cormorant Garamond',serif; font-size:1.15rem; color:var(--teal); margin:22px 0 8px; font-weight:600; }
   .cajas-sub span { font-family:'Jost',sans-serif; font-size:.74rem; color:var(--muted); font-weight:400; }
+  /* Bloques plegables (<details>): la cabecera se pulsa para plegar; lo que lleva dentro se repinta sin perder si está plegado */
+  details.plegable > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:8px; user-select:none; }
+  details.plegable > summary::-webkit-details-marker { display:none; }
+  details.plegable > summary::before { content:'▾'; color:var(--teal); font-size:.85rem; width:14px; flex:none; }
+  details.plegable:not([open]) > summary::before { content:'▸'; }
+  details.plegable > summary:hover { opacity:.8; }
   .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
   .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
     background:var(--surface2); border:1px solid var(--border); color:var(--text);
@@ -1512,32 +1518,37 @@
         <div id="concResumen" class="liq-resumen"></div>
         <div id="concHistorial"></div>
       </div>
-      <div class="pend-filtros">
-        <select id="pendEstado" onchange="renderPendientes()">
-          <option value="pendiente">Pendientes</option>
-          <option value="cobrado">Cobrados</option>
-          <option value="todos">Todos</option>
-        </select>
-        <select id="pendCircuito" onchange="renderPendientes()">
-          <option value="todos">Los dos circuitos</option>
-          <option value="efectivo">💵 Efectivo (vía Lucía)</option>
-          <option value="transferencia">🏦 Transferencia</option>
-        </select>
-        <select id="pendMes" onchange="renderPendientes()"></select>
-        <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
-      </div>
-      <div id="pendLista"></div>
-      <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal);margin:26px 0 6px">Clientes</h3>
-      <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
-        Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
-        Cambiarlo no toca los tickets ya apuntados.
-      </p>
-      <div id="pendClientes"></div>
-      <div class="pend-addcli">
-        <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
-        <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
-        <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
-      </div>
+      <details class="plegable" id="pendListaDet" open>
+        <summary class="cajas-sub">Listado de pendientes <span id="pendListaResumen"></span></summary>
+        <div class="pend-filtros">
+          <select id="pendEstado" onchange="renderPendientes()">
+            <option value="pendiente">Pendientes</option>
+            <option value="cobrado">Cobrados</option>
+            <option value="todos">Todos</option>
+          </select>
+          <select id="pendCircuito" onchange="renderPendientes()">
+            <option value="todos">Los dos circuitos</option>
+            <option value="efectivo">💵 Efectivo (vía Lucía)</option>
+            <option value="transferencia">🏦 Transferencia</option>
+          </select>
+          <select id="pendMes" onchange="renderPendientes()"></select>
+          <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
+        </div>
+        <div id="pendLista"></div>
+      </details>
+      <details class="plegable" id="pendClientesDet" open>
+        <summary class="cajas-sub">Clientes <span id="pendClientesResumen"></span></summary>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+          Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
+          Cambiarlo no toca los tickets ya apuntados.
+        </p>
+        <div id="pendClientes"></div>
+        <div class="pend-addcli">
+          <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
+          <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
+          <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
+        </div>
+      </details>
     </div>
 
     <!-- TAB: Seguimiento empleadas -->
@@ -2079,6 +2090,11 @@ function renderPendientes() {
       }).join('') +
       `<tr style="background:var(--teal-lt);font-weight:700"><td colspan="2">TOTAL (${lista.length})</td><td class="num">${fmt(sumar2(lista))} €</td><td colspan="4"></td></tr></tbody></table>`;
   }
+
+  // Lo que se ve en la cabecera cuando el bloque está plegado
+  document.getElementById('pendListaResumen').textContent = '· ' + lista.length + ' apunte' + (lista.length === 1 ? '' : 's') + (lista.length ? ' · ' + fmt(sumar2(lista)) + ' €' : '');
+  const conDeuda = new Set(abiertos.map(p => normNombre(p.cliente))).size;
+  document.getElementById('pendClientesResumen').textContent = '· ' + state.clientes.length + ' cliente' + (state.clientes.length === 1 ? '' : 's') + (conDeuda ? ' · ' + conDeuda + ' con pendiente' : '');
 
   // clientes
   document.getElementById('pendClientes').innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Cliente</th><th>Entidad (transferencia)</th><th style="text-align:right">Pendiente</th></tr></thead><tbody>' +
