@@ -3358,10 +3358,15 @@ function renderEmpGrid(ds) {
           title="Se calcula con los tickets pendientes de Lucía (más abajo)">`
       : `<input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
           oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">`;
+    // La fila de «Lucía» no es una empleada: es el total de los tickets pendientes de pago del día (Lucía y entidades).
+    // Solo cambia lo que se ve; el nombre guardado sigue siendo el de siempre (Seguimiento, Excel y copias no se tocan).
+    const etiqueta = esLucia(emp.name)
+      ? `<span class="emp-name" title="Total de los tickets pendientes de pago de este día (Lucía y entidades). Se calcula con la lista de más abajo.">Pendiente de pago</span>`
+      : `<span class="emp-name">${emp.name}</span>`;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
-      <span class="emp-name">${emp.name}</span>
+      ${etiqueta}
       ${campo}
       <span class="emp-type">€</span>
       <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.8rem" 
