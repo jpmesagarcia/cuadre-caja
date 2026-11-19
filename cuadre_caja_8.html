@@ -746,6 +746,11 @@
   .liq-resumen .liq-ok { color:var(--teal); font-weight:600; }
   .liq-mes td { background:var(--teal-lt); font-weight:600; }
   .liq-tabla { max-height:340px; overflow:auto; margin-bottom:6px; }
+  .conc-grid { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; margin-top:12px; }
+  .conc-grid h4 { font-size:.82rem; color:var(--teal); margin:0 0 6px; }
+  @media (max-width: 900px) { .conc-grid { grid-template-columns:1fr; } }
+  .conc-prop { display:block; margin:3px 0; text-align:left; color:var(--teal); border:1px solid var(--border); border-radius:5px; padding:3px 8px; font-size:.74rem; background:var(--surface2); }
+  .conc-prop:hover { color:var(--teal); border-color:var(--teal); }
   .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
@@ -1469,7 +1474,7 @@
         Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
         Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
         (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Los de efectivo se marcan como cobrados
-        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, con la conciliación con el banco (llegará).
+        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, en la <b>conciliación con el banco</b>.
       </p>
       <div class="stats-grid" id="pendTotales"></div>
       <div class="liq-card" id="liqCard">
@@ -1488,6 +1493,24 @@
         </div>
         <div id="liqResumen" class="liq-resumen"></div>
         <div id="liqHistorial"></div>
+      </div>
+      <div class="liq-card" id="concCard">
+        <h3>🏦 Conciliación de transferencias</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin:0">
+          Los ingresos del extracto del banco que no son visas ni cajero (los de «Otros informes»), junto a los pendientes por transferencia.
+          Elige el ingreso y los tickets que paga, o pulsa una propuesta 💡 (importe exacto o suma exacta) y confírmala tú.
+          Al conciliar, los tickets pasan a cobrados con la fecha del banco. No mueve Cajas: ese dinero entra en el banco, no en la caja.
+        </p>
+        <div class="conc-grid">
+          <div><h4>Ingresos del banco sin conciliar</h4><div id="concMovs" class="liq-tabla"></div></div>
+          <div><h4>Pendientes por transferencia</h4><div id="concTickets" class="liq-tabla"></div></div>
+        </div>
+        <div class="liq-form">
+          <label>Nota <input type="text" id="concNota" class="nota" maxlength="120" placeholder="—"></label>
+          <button class="btn" id="concBtn" onclick="concRegistrar()">Conciliar</button>
+        </div>
+        <div id="concResumen" class="liq-resumen"></div>
+        <div id="concHistorial"></div>
       </div>
       <div class="pend-filtros">
         <select id="pendEstado" onchange="renderPendientes()">
@@ -1604,7 +1627,7 @@
 const STORAGE_KEY = 'cuadre_caja_v3';
 const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
 const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
-const BACKUP_SCHEMA   = 3;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía)
+const BACKUP_SCHEMA   = 4;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía; 4: conciliaciones de transferencias)
 const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
 let guardadoFallido = false;        // el último guardado falló
@@ -1634,6 +1657,7 @@ function buildPersistedState() {
     libroPorMes: state.libroPorMes,
     pendientes: state.pendientes,
     liquidaciones: state.liquidaciones,
+    conciliaciones: state.conciliaciones,
     clientes: state.clientes,
     formsData: state.formsData
   };
@@ -1884,13 +1908,112 @@ function deshacerLiquidacion(id) {
 }
 
 // Suma de los tickets de una liquidación (los cobrados no se pueden editar, así que no cambia).
-function getSumaLiquidacion(liq) {
-  return sumar2(liq.ticketIds.map(id => state.pendientes.find(p => p.id === id)).filter(Boolean));
+function getSumaTickets(ids) {
+  return sumar2(ids.map(id => state.pendientes.find(p => p.id === id)).filter(Boolean));
 }
+function getSumaLiquidacion(liq) { return getSumaTickets(liq.ticketIds); }
 
 // Lo que Lucía ha entregado un día (para Cajas física).
 function getDevolucionesDia(ds) {
   return Math.round(state.liquidaciones.filter(l => l.fecha === ds).reduce((s, l) => s + (l.importe || 0), 0) * 100) / 100;
+}
+
+// ─── Conciliación de transferencias ────────────────────────────────────────
+// Los pendientes por transferencia (Hacienda, Colegio Laude…) se cobran en el banco, no en la caja. Cada
+// conciliación une un ingreso del extracto con los tickets que paga: {id, movId, fecha (la del banco), importe
+// (el del banco), concepto, ticketIds, nota}. Marca los tickets como cobrados (fecha del banco, ref = id de la
+// conciliación) y el ingreso deja de salir como pendiente de conciliar. No mueve Cajas: ese dinero no pasa por
+// la caja. Como la liquidación con Lucía, la diferencia entre el ingreso y la suma de los tickets se enseña, no se corrige.
+function nuevoIdConciliacion() {
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Ingresos del extracto cargado que no son visas ni cajero, de todos los meses (a veces el ingreso llega al mes
+// siguiente), con un id estable: fecha|céntimos|concepto y, si hay dos movimientos idénticos, #0, #1…
+// Es lo de «Otros informes» con la regla de la carga del banco (leerFilaBanco), que no pierde las filas de lunes (E-11).
+function getIngresosBanco() {
+  const out = [], vistos = {};
+  (state.caixaRawRows || []).slice(3).forEach(r => {
+    const m = leerFilaBanco(r);
+    if (!m || m.tipo !== 'otro' || !(m.importe > 0)) return;
+    const importe = Math.round(m.importe * 100) / 100;
+    const clave = m.fecha + '|' + Math.round(importe * 100) + '|' + normNombre(m.concepto);
+    const n = vistos[clave] = (vistos[clave] === undefined ? 0 : vistos[clave] + 1);
+    out.push({ id: clave + '#' + n, fecha: m.fecha, concepto: m.concepto, importe });
+  });
+  return out.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+}
+
+// Los que todavía no se han conciliado con ningún ticket.
+function getIngresosBancoSinConciliar() {
+  const usados = new Set(state.conciliaciones.map(c => c.movId));
+  return getIngresosBanco().filter(m => !usados.has(m.id));
+}
+
+// Lo que todavía se debe por transferencia, del más antiguo al más reciente.
+function getPendientesTransferencia() {
+  return state.pendientes
+    .filter(p => p.estado !== 'cobrado' && p.pago === 'transferencia')
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.cliente.localeCompare(b.cliente, 'es'));
+}
+
+// Tickets que suman justo el importe de un ingreso. Primero los de importe exacto (un solo ticket, de cualquier
+// cliente) y después las sumas exactas de 2 a 5 tickets de un mismo cliente (una transferencia suele pagar
+// varios tickets de la misma entidad). Devuelve como mucho 4 propuestas [{tipo, tickets}], las de menos tickets
+// y las más antiguas primero. La búsqueda tiene tope de tamaño y de pasos para no colgarse con muchos tickets.
+function proponerParejas(importe, pendientes) {
+  const objetivo = Math.round(importe * 100);
+  const tks = pendientes.map(p => ({ p, c: Math.round(p.importe * 100) })).filter(x => x.c > 0 && x.c <= objetivo);
+  const out = [];
+  tks.filter(x => x.c === objetivo).forEach(x => out.push({ tipo: 'exacto', tickets: [x.p] }));
+  const porCliente = {};
+  tks.forEach(x => { (porCliente[normNombre(x.p.cliente)] = porCliente[normNombre(x.p.cliente)] || []).push(x); });
+  Object.keys(porCliente).sort().forEach(k => {
+    const lista = porCliente[k].sort((a, b) => b.c - a.c).slice(0, 25);   // los 25 mayores del cliente
+    if (lista.length < 2) return;
+    let pasos = 0;
+    const rec = (i, restante, elegidos) => {
+      if (out.length >= 4 || pasos++ > 20000) return;
+      if (restante === 0 && elegidos.length >= 2) { out.push({ tipo: 'suma', tickets: elegidos.map(x => x.p) }); return; }
+      if (elegidos.length >= 5) return;
+      for (let j = i; j < lista.length; j++) {
+        if (lista[j].c > restante) continue;
+        elegidos.push(lista[j]); rec(j + 1, restante - lista[j].c, elegidos); elegidos.pop();
+      }
+    };
+    rec(0, objetivo, []);
+  });
+  return out.sort((a, b) => a.tickets.length - b.tickets.length ||
+    (a.tickets[0].fecha < b.tickets[0].fecha ? -1 : a.tickets[0].fecha > b.tickets[0].fecha ? 1 : 0)).slice(0, 4);
+}
+
+// Devuelve la conciliación creada, o null si el ingreso ya no está sin conciliar o algún ticket no está pendiente
+// por transferencia. Si devuelve null no ha cambiado nada.
+function registrarConciliacion({ movId, ticketIds, nota }) {
+  const mov = getIngresosBancoSinConciliar().find(m => m.id === movId);
+  if (!mov) return null;
+  const ids = [...new Set(ticketIds || [])];
+  const tks = ids.map(id => state.pendientes.find(p => p.id === id));
+  if (!tks.length || tks.some(p => !p || p.estado === 'cobrado' || p.pago !== 'transferencia')) return null;
+  const c = { id: nuevoIdConciliacion(), movId: mov.id, fecha: mov.fecha, importe: mov.importe, concepto: mov.concepto,
+              ticketIds: ids, nota: (nota || '').toString().trim() };
+  tks.forEach(p => { p.estado = 'cobrado'; p.fechaCobro = mov.fecha; p.ref = c.id; });
+  state.conciliaciones.push(c);
+  state.conciliaciones.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+  return c;
+}
+
+// Deshace una conciliación: sus tickets vuelven a pendientes y el ingreso vuelve a salir sin conciliar.
+function deshacerConciliacion(id) {
+  const i = state.conciliaciones.findIndex(c => c.id === id);
+  if (i < 0) return false;
+  const c = state.conciliaciones[i];
+  c.ticketIds.forEach(tid => {
+    const p = state.pendientes.find(x => x.id === tid);
+    if (p && p.ref === c.id) { p.estado = 'pendiente'; p.fechaCobro = null; p.ref = ''; }
+  });
+  state.conciliaciones.splice(i, 1);
+  return true;
 }
 
 // ─── Pestaña Pendientes ────────────────────────────────────────────────────
@@ -1916,6 +2039,7 @@ function renderPendientes() {
        <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
        <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
   renderLiquidacion();
+  renderConciliacion();
   document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
 
   // meses con apuntes (por fecha de la venta)
@@ -2091,6 +2215,128 @@ function liqTrasCambio() {
   recalcAll(); renderDayGrid(); saveState(); renderPendientes();
 }
 
+// ─── Pantalla de la conciliación de transferencias ─────────────────────────
+// Solo de pantalla (no se guarda): el ingreso elegido y los tickets marcados. concVista guarda lo que se ha
+// dibujado (ingresos, pendientes y propuestas) para que los botones se refieran a ello por posición.
+const concPant = { movId: null, sel: new Set() };
+let concVista = { movs: [], pend: [], props: [] };
+
+function renderConciliacion() {
+  const elM = document.getElementById('concMovs'); if (!elM) return;
+  const movs = getIngresosBancoSinConciliar();
+  const pend = getPendientesTransferencia();
+  if (concPant.movId && !movs.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
+  [...concPant.sel].forEach(id => { if (!pend.some(p => p.id === id)) concPant.sel.delete(id); });
+  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pend)) };
+
+  if (!(state.caixaRawRows || []).length) {
+    elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay extracto del banco cargado. Súbelo con «La Caixa» en la carga de datos.</p></div>';
+  } else if (!movs.length) {
+    elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No quedan ingresos del banco por conciliar.</p></div>';
+  } else {
+    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
+      movs.map((m, i) => {
+        const props = concVista.props[i].map((q, k) => {
+          const cli = escHtml(q.tickets[0].cliente);
+          const txt = q.tipo === 'exacto'
+            ? `${cli} · ${fechaDMA(q.tickets[0].fecha)} · importe exacto`
+            : `${q.tickets.length} tickets de ${cli} · suma exacta`;
+          const tip = q.tickets.map(t => fechaDMA(t.fecha) + ' ' + t.cliente + ' ' + fmt(t.importe) + ' €').join('\n');
+          return `<button class="pend-del conc-prop" title="${escHtml(tip)}" onclick="concUsarPropuesta(${i}, ${k})">💡 ${txt}</button>`;
+        }).join('') || '<span style="color:var(--muted);font-size:.74rem">Sin propuesta</span>';
+        return `<tr><td><input type="radio" name="concMov" ${concPant.movId === m.id ? 'checked' : ''} onchange="concElegirMov(${i})"></td>
+          <td class="mono">${fechaDMA(m.fecha)}</td><td>${escHtml(m.concepto) || '—'}</td><td class="num">${fmt(m.importe)} €</td><td>${props}</td></tr>`;
+      }).join('') + '</tbody></table>';
+  }
+
+  const elT = document.getElementById('concTickets');
+  if (!pend.length) {
+    elT.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay pendientes por transferencia.</p></div>';
+  } else {
+    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>' +
+      pend.map((p, i) => `<tr><td><input type="checkbox" ${concPant.sel.has(p.id) ? 'checked' : ''} onchange="concToggle(${i}, this.checked)"></td>
+        <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`).join('') + '</tbody></table>';
+  }
+  concActualizarResumen();
+  renderConciliacionHistorial();
+}
+
+function concActualizarResumen() {
+  const mov = concVista.movs.find(m => m.id === concPant.movId);
+  const marc = concVista.pend.filter(p => concPant.sel.has(p.id));
+  const suma = sumar2(marc);
+  let t;
+  if (!mov && !marc.length) t = 'Elige un ingreso del banco y los tickets que paga, o usa una propuesta 💡.';
+  else if (!mov) t = `${marc.length} ticket${marc.length === 1 ? '' : 's'} marcado${marc.length === 1 ? '' : 's'} (<b>${fmt(suma)} €</b>). Falta elegir el ingreso del banco.`;
+  else if (!marc.length) t = `Ingreso elegido: <b>${fmt(mov.importe)} €</b>. Falta marcar los tickets que paga.`;
+  else {
+    const dif = Math.round((mov.importe - suma) * 100) / 100;
+    t = `Ingreso de <b>${fmt(mov.importe)} €</b> y ${marc.length} ticket${marc.length === 1 ? '' : 's'} que suman <b>${fmt(suma)} €</b>.` + (dif === 0
+      ? ' <span class="liq-ok">✓ Coincide.</span>'
+      : ` <span class="liq-aviso">⚠️ No coincide: el banco ingresa ${fmt(Math.abs(dif))} € ${dif > 0 ? 'más' : 'menos'} que la suma de los tickets.</span> Se registra tal cual y la diferencia queda en el historial.`);
+  }
+  document.getElementById('concResumen').innerHTML = t;
+  document.getElementById('concBtn').disabled = !(mov && marc.length);
+}
+
+function renderConciliacionHistorial() {
+  const el = document.getElementById('concHistorial'); if (!el) return;
+  if (!state.conciliaciones.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<h4 style="font-size:.82rem;color:var(--teal);margin:14px 0 6px">Conciliaciones registradas</h4>' +
+    '<table class="seg-table pend-tabla"><thead><tr><th>Fecha del banco</th><th>Concepto</th><th>Tickets</th><th style="text-align:right">Suma</th><th style="text-align:right">Ingreso</th><th style="text-align:right">Diferencia</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    [...state.conciliaciones].reverse().map(c => {
+      const suma = getSumaTickets(c.ticketIds), dif = Math.round((c.importe - suma) * 100) / 100;
+      return `<tr><td class="mono">${fechaDMA(c.fecha)}</td><td>${escHtml(c.concepto) || '—'}</td><td>${c.ticketIds.length}</td>
+        <td class="num">${fmt(suma)} €</td><td class="num">${fmt(c.importe)} €</td>
+        <td class="num" style="${dif ? 'color:var(--err);font-weight:600' : ''}">${dif ? (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €' : '—'}</td>
+        <td>${escHtml(c.nota) || '—'}</td>
+        <td><button class="pend-del" title="Deshacer: los tickets vuelven a pendientes y el ingreso vuelve a salir sin conciliar" onclick="concDeshacer('${c.id}')">↩ Deshacer</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function concElegirMov(i) { concPant.movId = concVista.movs[i].id; renderConciliacion(); }
+function concToggle(i, marcado) {
+  const id = concVista.pend[i].id;
+  if (marcado) concPant.sel.add(id); else concPant.sel.delete(id);
+  renderConciliacion();
+}
+// Una propuesta solo deja elegido el ingreso y marcados sus tickets: la confirmación sigue siendo a mano.
+function concUsarPropuesta(i, k) {
+  concPant.movId = concVista.movs[i].id;
+  concPant.sel = new Set(concVista.props[i][k].tickets.map(t => t.id));
+  renderConciliacion();
+}
+
+function concRegistrar() {
+  const mov = concVista.movs.find(m => m.id === concPant.movId);
+  const marc = concVista.pend.filter(p => concPant.sel.has(p.id));
+  if (!mov || !marc.length) return;
+  const suma = sumar2(marc), dif = Math.round((mov.importe - suma) * 100) / 100;
+  if (dif !== 0 && !confirm('El banco ingresa ' + fmt(mov.importe) + ' € y los ' + marc.length + ' tickets suman ' + fmt(suma) + ' € (diferencia de ' + (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €).\n\nTodos los tickets marcados pasan a cobrados y la diferencia queda anotada en el historial.\n\n¿Conciliar igualmente?')) return;
+  const c = registrarConciliacion({ movId: mov.id, ticketIds: marc.map(p => p.id), nota: document.getElementById('concNota').value });
+  if (!c) { alert('No se ha podido conciliar: el ingreso o algún ticket ya no está disponible. No se ha cambiado nada.'); renderPendientes(); return; }
+  concPant.movId = null; concPant.sel.clear();
+  document.getElementById('concNota').value = '';
+  concTrasCambio();
+  toast('✅ Conciliado: ' + marc.length + (marc.length === 1 ? ' ticket cobrado' : ' tickets cobrados') + ' con el ingreso del ' + fechaDMA(c.fecha));
+}
+
+function concDeshacer(id) {
+  const c = state.conciliaciones.find(x => x.id === id); if (!c) return;
+  if (!confirm('¿Deshacer la conciliación del ' + fechaDMA(c.fecha) + ' (' + fmt(c.importe) + ' €, ' + c.ticketIds.length + ' tickets)?\n\nLos tickets vuelven a pendientes y el ingreso vuelve a salir sin conciliar.')) return;
+  deshacerConciliacion(id);
+  concPant.movId = null; concPant.sel.clear();
+  concTrasCambio();
+  toast('↩ Conciliación deshecha');
+}
+
+// No mueve Cajas (esos tickets no entran en la caja), solo la lista y la tarjeta del día abierto (los cobrados no se borran).
+function concTrasCambio() {
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) renderLuciaSection(ds);
+  saveState(); renderPendientes();
+}
+
 function pendCambiarPago(id, pago) {
   const p = state.pendientes.find(x => x.id === id);
   if (!p || p.estado === 'cobrado' || (pago !== 'efectivo' && pago !== 'transferencia')) return;
@@ -2154,6 +2400,7 @@ function loadState() {
   state.libroPorMes     = saved.libroPorMes     || {};
     state.pendientes      = saved.pendientes      || [];
     state.liquidaciones   = saved.liquidaciones   || [];   // copias y datos del esquema 2 no las tienen
+    state.conciliaciones  = saved.conciliaciones  || [];   // ni los del esquema 3
     state.clientes        = saved.clientes        || clientesIniciales();
   state.formsData       = saved.formsData       || {};
     return Object.keys(state.farmatic).length > 0;
@@ -2241,6 +2488,7 @@ function resumenCopia(d) {
     // esquema 2: libro de pendientes; copias del esquema 1: tickets dentro de cada día
     pendientes: (d.pendientes !== undefined ? (d.pendientes || []).length : dias.reduce((s, x) => s + ((x && x.luciaTickets) || []).length, 0)),
     liquidaciones: (d.liquidaciones || []).length,
+    conciliaciones: (d.conciliaciones || []).length,
     mesesConLibro: Object.keys(d.libroPorMes || {}).length,
     mesesConSaldo: Object.keys(d.saldosPorMes || {}).length,
     arqueosGuardados: (d.arqueoHistorico || []).length,
@@ -2284,7 +2532,7 @@ function validarCopiaCompleta(o) {
   if (!esObj(d)) return 'La copia no contiene datos.';
   for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
-  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'clientes'])
+  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'conciliaciones', 'clientes'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   if (d.libro !== undefined && (d.libro === null || typeof d.libro !== 'object')) return 'El campo «libro» no tiene el formato esperado.';
   if (d.arqueo !== undefined && d.arqueo !== null && !esObj(d.arqueo)) return 'El campo «arqueo» no tiene el formato esperado.';
@@ -2323,7 +2571,7 @@ function aplicarCopiaCompleta(obj, nombreFichero) {
     'Fichero: ' + nombreFichero,
     'Hecha el: ' + cuando,
     'Mes: ' + (r.mes || '—'),
-    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Pendientes de cobro: ' + r.pendientes + ' · Liquidaciones con Lucía: ' + r.liquidaciones,
+    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Pendientes de cobro: ' + r.pendientes + ' · Liquidaciones con Lucía: ' + r.liquidaciones + ' · Transferencias conciliadas: ' + r.conciliaciones,
     'Meses con libro: ' + r.mesesConLibro + ' · Meses con saldo: ' + r.mesesConSaldo + ' · Arqueos: ' + r.arqueosGuardados,
     '',
     'Esto SUSTITUYE todos los datos actuales de este navegador.' + (hayActuales ? ' Antes se descargará una copia de lo que hay ahora.' : ''),
@@ -2453,7 +2701,7 @@ function estadoPersistidoVacio() {
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
     arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {},
-    pendientes: [], liquidaciones: [], clientes: clientesIniciales(), formsData: {}
+    pendientes: [], liquidaciones: [], conciliaciones: [], clientes: clientesIniciales(), formsData: {}
   };
 }
 
@@ -2502,6 +2750,7 @@ const state = {
   saldosPorMes: {},   // saldo inicial TECLEADO a mano; el heredado no se guarda aquí, se calcula (getSaldoInicial)
   pendientes: [],     // libro de pendientes de cobro, independiente del mes y de las tarjetas diarias (ver «Libro de pendientes»)
   liquidaciones: [],  // devoluciones de Lucía: [{id, fecha, importe, ticketIds, nota}] (ver «Liquidación con Lucía»)
+  conciliaciones: [], // transferencias conciliadas con el banco: [{id, movId, fecha, importe, concepto, ticketIds, nota}] (ver «Conciliación de transferencias»)
   clientes: clientesIniciales(),   // [{nombre, entidad}]: clientes de los pendientes; entidad = paga por transferencia (E-29)
   formsData: {},
   defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia'],
@@ -2868,6 +3117,40 @@ function loadForms(evt) {
   reader.readAsArrayBuffer(file);
 }
 
+// ─── Movimientos del banco ─────────────────────────────────────────────────
+// Lee una fila del extracto de La Caixa con la regla de la carga del banco (la que alimenta las visas y los
+// ingresos en cajero de Cajas) y devuelve {fecha, importe, movimiento, concepto, tipo}, o null si la fila no
+// tiene fecha o importe. movimiento = texto de las celdas de texto en minúsculas; concepto = el último texto
+// largo (para enseñarlo); tipo = 'visa' (ON), 'cajero' (ingreso en cajero) u 'otro' (todo lo demás: lo que
+// no cuenta en ninguna caja). Conserva los defectos conocidos de la regla (E-10, E-12): se corrigen en la fase 3.
+function fechaCeldaBanco(v) {
+  // Tras recargar la página las fechas del extracto son texto ISO con hora UTC («2026-10-25T23:00:00.000Z»):
+  // pasan por Date para volver al día local que tenían al cargar el fichero.
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const d = new Date(v); if (!isNaN(d)) return toDateStr(d); }
+  return toDateStr(v);
+}
+function leerFilaBanco(r) {
+  if (!r) return null;
+  let fecha = null, movimiento = '', importe = null, concepto = '';
+  for (let j = 0; j < r.length; j++) {
+    const v = r[j];
+    if (!v) continue;
+    const ds = fechaCeldaBanco(v);
+    if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
+    if (typeof v === 'string') {
+      const esFechaISO = /^\d{4}-\d{2}-\d{2}T/.test(v);
+      if (!esFechaISO) { movimiento += ' ' + v.toLowerCase(); if (v.length > 3) concepto = v; }
+    }
+    if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
+  }
+  if (!fecha || importe === null) return null;
+  const mov = movimiento.trim();
+  const esON = mov.includes('on ') || /\bon\b/.test(mov);
+  const esCajero = mov.includes('ingreso') && mov.includes('cajero');
+  const tipo = (esON && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
+  return { fecha, importe, movimiento: mov, concepto: concepto.trim(), tipo };
+}
+
 // ─── Load Caixa ────────────────────────────────────────────────────────────
 function loadCaixa(evt) {
   const file = evt.target.files[0]; if (!file) return;
@@ -2891,33 +3174,19 @@ function loadCaixa(evt) {
     for (let i=hdrC+1; i<rows.length; i++) {
       const r = rows[i]; if (!r) continue;
 
-      // Find fecha, movimiento text, and importe in this row
-      let fecha=null, movimiento='', importe=null;
-      for (let j=0;j<r.length;j++) {
-        const v = r[j];
-        if (!v) continue;
-        const ds = toDateStr(v);
-        if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
-        if (typeof v === 'string') movimiento += ' ' + v.toLowerCase();
-        if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
-      }
-
-      if (!fecha || importe === null) continue;
+      const m = leerFilaBanco(r);
+      if (!m) continue;
       state.caixaRawRows.push(r); // save for export
 
-      const movLower = movimiento.trim();
-      const esON = movLower.includes('on ') || /\bon\b/.test(movLower);
-      const esCajero = movLower.includes('ingreso') && movLower.includes('cajero');
-
-      if (esON && importe > 0) {
+      if (m.tipo === 'visa') {
         // Visas TPV: asignar al día anterior (día real de venta)
-        const d = new Date(fecha + 'T12:00:00');
+        const d = new Date(m.fecha + 'T12:00:00');
         d.setDate(d.getDate() - 1);
         const realDs = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        state.caixa[realDs] = (state.caixa[realDs]||0) + importe;
-      } else if (esCajero && importe > 0) {
+        state.caixa[realDs] = (state.caixa[realDs]||0) + m.importe;
+      } else if (m.tipo === 'cajero') {
         // Ingreso en cajero: columna Caixa de hoja Cajas, con fecha original del banco
-        state.cajero[fecha] = (state.cajero[fecha]||0) + importe;
+        state.cajero[m.fecha] = (state.cajero[m.fecha]||0) + m.importe;
       }
       // Resto de movimientos: ignorar
     }
