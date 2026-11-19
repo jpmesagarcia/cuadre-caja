@@ -4208,6 +4208,7 @@ function calcCajaFisica() {
     ...state.liquidaciones.filter(l => state.month && l.fecha.startsWith(state.month)).map(l => l.fecha)])].sort();
   const filas = [];
   let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0, devolucionesMes = 0;
+  const sumas = {ef: 0, dev: 0, cajero: 0, gastos: 0, tickets: 0};   // suma de cada columna, para la fila de totales de pantalla
   fechas.forEach(ds => {
     const ficha  = conFicha.has(ds);
     const ef     = ficha ? Math.round(getDayEfectivoFisico(ds)*100)/100 : 0;
@@ -4218,14 +4219,18 @@ function calcCajaFisica() {
     if (ficha) acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
     gastosMes  = Math.round((gastosMes + gastos)*100)/100;
     devolucionesMes = Math.round((devolucionesMes + dev)*100)/100;
-    filas.push({ds, ef, cajero, gastos, dev, ficha, acum: acumFisico});
+    // Los tickets del día solo cuentan en los días con ficha: son los mismos que suma calcTicketsMes() en el puente
+    const tickets = ficha ? getLuciaTotal(ds) : 0;
+    [['ef', ef], ['dev', dev], ['cajero', cajero], ['gastos', gastos], ['tickets', tickets]]
+      .forEach(([k, v]) => { sumas[k] = Math.round((sumas[k] + v)*100)/100; });
+    filas.push({ds, ef, cajero, gastos, dev, tickets, ficha, acum: acumFisico});
   });
   // El neto del Libro entra igual en las dos
   acumFisico = Math.round((acumFisico + lt.net)*100)/100;
   acumActual = Math.round((acumActual + lt.net)*100)/100;
   const tickets = calcTicketsMes();
   const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes + devolucionesMes)*100)/100;
-  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
+  return {saldo0, filas, sumas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
           sinExplicar: Math.round((acumFisico - resultado)*100)/100};
 }
 
@@ -5071,7 +5076,7 @@ function renderCajasFisica() {
   </tr></thead><tbody>`;
   html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
   c.filas.forEach(f => {
-    const tk = getLuciaTotal(f.ds);
+    const tk = f.tickets;
     html += `<tr>
       <td>${f.ds.slice(5)}</td>
       <td style="text-align:left;color:var(--muted)">${f.ds}${f.dev ? ' · Lucía devuelve' : ''}${f.ficha ? '' : ' · sin ficha de efectivo'}</td>
@@ -5083,6 +5088,18 @@ function renderCajasFisica() {
       <td style="color:var(--muted)">${tk ? fmt(tk) : '—'}</td>
     </tr>`;
   });
+  // Suma de cada columna de los días: Gastos, Tickets y Devoluciones son justo las líneas del puente de más abajo.
+  // Va antes del Libro porque la fila del Libro pone su neto en la columna de Gastos.
+  const s = c.sumas;
+  html += `<tr style="background:var(--teal-lt);font-weight:700">
+      <td>—</td><td style="text-align:left;color:var(--teal)">Suma del mes (sin el Libro)</td>
+      <td>${fmt(s.ef)}</td>
+      <td>${s.dev ? `<span style="color:var(--teal)">+${fmt(s.dev)}</span>` : '—'}</td>
+      <td>${s.cajero ? `<span style="color:var(--err)">−${fmt(s.cajero)}</span>` : '—'}</td>
+      <td>${s.gastos ? fmt(s.gastos) : '—'}</td>
+      <td>—</td>
+      <td>${s.tickets ? fmt(s.tickets) : '—'}</td>
+    </tr>`;
   if (c.libro !== 0) {
     const gastoStr = c.libro < 0
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
@@ -5535,7 +5552,7 @@ function exportExcelCore() {
     ];
     cf.filas.forEach(f => {
       cfRows.push(['', dateSerial(f.ds), f.ds + (f.dev ? ' · Lucía devuelve' : '') + (f.ficha ? '' : ' · sin ficha de efectivo'),
-        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
+        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(f.tickets)||'']);
     });
     const cfLibroRow = cfRows.length;
     cfRows.push(['','','Libro (sí entra en el total)','','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
