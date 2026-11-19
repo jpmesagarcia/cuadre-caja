@@ -2868,6 +2868,40 @@ function loadForms(evt) {
   reader.readAsArrayBuffer(file);
 }
 
+// ─── Movimientos del banco ─────────────────────────────────────────────────
+// Lee una fila del extracto de La Caixa con la regla de la carga del banco (la que alimenta las visas y los
+// ingresos en cajero de Cajas) y devuelve {fecha, importe, movimiento, concepto, tipo}, o null si la fila no
+// tiene fecha o importe. movimiento = texto de las celdas de texto en minúsculas; concepto = el último texto
+// largo (para enseñarlo); tipo = 'visa' (ON), 'cajero' (ingreso en cajero) u 'otro' (todo lo demás: lo que
+// no cuenta en ninguna caja). Conserva los defectos conocidos de la regla (E-10, E-12): se corrigen en la fase 3.
+function fechaCeldaBanco(v) {
+  // Tras recargar la página las fechas del extracto son texto ISO con hora UTC («2026-10-25T23:00:00.000Z»):
+  // pasan por Date para volver al día local que tenían al cargar el fichero.
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const d = new Date(v); if (!isNaN(d)) return toDateStr(d); }
+  return toDateStr(v);
+}
+function leerFilaBanco(r) {
+  if (!r) return null;
+  let fecha = null, movimiento = '', importe = null, concepto = '';
+  for (let j = 0; j < r.length; j++) {
+    const v = r[j];
+    if (!v) continue;
+    const ds = fechaCeldaBanco(v);
+    if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
+    if (typeof v === 'string') {
+      const esFechaISO = /^\d{4}-\d{2}-\d{2}T/.test(v);
+      if (!esFechaISO) { movimiento += ' ' + v.toLowerCase(); if (v.length > 3) concepto = v; }
+    }
+    if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
+  }
+  if (!fecha || importe === null) return null;
+  const mov = movimiento.trim();
+  const esON = mov.includes('on ') || /\bon\b/.test(mov);
+  const esCajero = mov.includes('ingreso') && mov.includes('cajero');
+  const tipo = (esON && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
+  return { fecha, importe, movimiento: mov, concepto: concepto.trim(), tipo };
+}
+
 // ─── Load Caixa ────────────────────────────────────────────────────────────
 function loadCaixa(evt) {
   const file = evt.target.files[0]; if (!file) return;
@@ -2891,33 +2925,19 @@ function loadCaixa(evt) {
     for (let i=hdrC+1; i<rows.length; i++) {
       const r = rows[i]; if (!r) continue;
 
-      // Find fecha, movimiento text, and importe in this row
-      let fecha=null, movimiento='', importe=null;
-      for (let j=0;j<r.length;j++) {
-        const v = r[j];
-        if (!v) continue;
-        const ds = toDateStr(v);
-        if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
-        if (typeof v === 'string') movimiento += ' ' + v.toLowerCase();
-        if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
-      }
-
-      if (!fecha || importe === null) continue;
+      const m = leerFilaBanco(r);
+      if (!m) continue;
       state.caixaRawRows.push(r); // save for export
 
-      const movLower = movimiento.trim();
-      const esON = movLower.includes('on ') || /\bon\b/.test(movLower);
-      const esCajero = movLower.includes('ingreso') && movLower.includes('cajero');
-
-      if (esON && importe > 0) {
+      if (m.tipo === 'visa') {
         // Visas TPV: asignar al día anterior (día real de venta)
-        const d = new Date(fecha + 'T12:00:00');
+        const d = new Date(m.fecha + 'T12:00:00');
         d.setDate(d.getDate() - 1);
         const realDs = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        state.caixa[realDs] = (state.caixa[realDs]||0) + importe;
-      } else if (esCajero && importe > 0) {
+        state.caixa[realDs] = (state.caixa[realDs]||0) + m.importe;
+      } else if (m.tipo === 'cajero') {
         // Ingreso en cajero: columna Caixa de hoja Cajas, con fecha original del banco
-        state.cajero[fecha] = (state.cajero[fecha]||0) + importe;
+        state.cajero[m.fecha] = (state.cajero[m.fecha]||0) + m.importe;
       }
       // Resto de movimientos: ignorar
     }
