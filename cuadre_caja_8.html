@@ -718,6 +718,9 @@
     position:sticky; top:0;
   }
   .seg-table thead th:last-child { text-align:right; }
+  .seg-table thead th.th-orden { cursor:pointer; user-select:none; }
+  .seg-table thead th.th-orden:hover { text-decoration:underline; }
+  .seg-table thead th.th-orden.activo { font-weight:700; }
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
@@ -2039,6 +2042,38 @@ const escHtml = t => (t == null ? '' : t.toString()).replace(/&/g, '&amp;').repl
 const fechaDMA = ds => ds ? ds.split('-').reverse().join('/') : '';
 const sumar2 = lista => Math.round(lista.reduce((a, p) => a + (p.importe || 0), 0) * 100) / 100;
 
+// Orden de las tablas de esta pestaña. Solo de pantalla (no se guarda): cada tabla tiene su columna y su sentido
+// (1 ascendente, −1 descendente). Pulsar la cabecera de otra columna ordena por ella; pulsar la misma, invierte.
+// Los nombres de columna son los de los campos del apunte (fecha, cliente, importe, pago, estado, concepto).
+const ordenPant = {
+  liq:     {col: 'cliente', dir: 1},   // el orden de siempre de la liquidación: por cliente y, dentro, por fecha
+  pend:    {col: 'fecha',   dir: 1},   // el orden de siempre del listado
+  concMov: {col: 'fecha',   dir: 1},
+  concTk:  {col: 'fecha',   dir: 1}
+};
+const ordenRepintar = {
+  liq: () => renderLiquidacion(), pend: () => renderPendientes(),
+  concMov: () => renderConciliacion(), concTk: () => renderConciliacion()
+};
+function cambiarOrden(tabla, col) {
+  const o = ordenPant[tabla];
+  if (o.col === col) o.dir = -o.dir; else { o.col = col; o.dir = 1; }
+  ordenRepintar[tabla]();
+}
+function thOrden(tabla, col, texto, estilo) {
+  const o = ordenPant[tabla], activo = o.col === col;
+  return `<th class="th-orden${activo ? ' activo' : ''}"${estilo ? ` style="${estilo}"` : ''} title="Ordenar por ${texto.toLowerCase()}" onclick="cambiarOrden('${tabla}','${col}')">${texto}${activo ? (o.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+}
+// Devuelve una copia ordenada; los empates conservan el orden de origen (fecha y luego cliente).
+function ordenarLista(lista, tabla) {
+  const {col, dir} = ordenPant[tabla];
+  const val = x => col === 'estado' ? (x.estado === 'cobrado' ? 1 : 0) : x[col];
+  return [...lista].sort((a, b) => {
+    const va = val(a), vb = val(b);
+    return dir * (typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va == null ? '' : va).localeCompare(String(vb == null ? '' : vb), 'es'));
+  });
+}
+
 function renderPendientes() {
   const tot = document.getElementById('pendTotales'); if (!tot) return;
   const abiertos = state.pendientes.filter(p => p.estado !== 'cobrado');
@@ -2069,18 +2104,18 @@ function renderPendientes() {
 
   const fe = document.getElementById('pendEstado').value, fc = document.getElementById('pendCircuito').value;
   const ft = normNombre(document.getElementById('pendTexto').value);
-  const lista = state.pendientes
+  const lista = ordenarLista(state.pendientes
     .filter(p => fe === 'todos' || (fe === 'cobrado') === (p.estado === 'cobrado'))
     .filter(p => fc === 'todos' || p.pago === fc)
     .filter(p => pendFiltro.mes === 'todos' || p.fecha.startsWith(pendFiltro.mes))
     .filter(p => !ft || normNombre(p.cliente).includes(ft))
-    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0), 'pend');
 
   const el = document.getElementById('pendLista');
   if (!lista.length) {
     el.innerHTML = '<div class="empty-state" style="padding:20px"><p>' + (state.pendientes.length ? 'Ningún apunte con estos filtros.' : 'Todavía no hay tickets pendientes.') + '</p></div>';
   } else {
-    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th><th>Pago</th><th>Estado</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr>' + thOrden('pend', 'fecha', 'Fecha') + thOrden('pend', 'cliente', 'Cliente') + thOrden('pend', 'importe', 'Importe', 'text-align:right') + thOrden('pend', 'pago', 'Pago') + thOrden('pend', 'estado', 'Estado') + '<th>Nota</th><th></th></tr></thead><tbody>' +
       lista.map(p => {
         const cobrado = p.estado === 'cobrado';
         return `<tr>
@@ -2134,10 +2169,13 @@ function renderLiquidacion() {
   if (!pend.length) {
     lista.innerHTML = '<div class="empty-state" style="padding:14px"><p>Lucía no debe nada en efectivo.</p></div>';
   } else {
+    // Los tickets se agrupan por mes (el mes manda en el arqueo) y se ordenan dentro de cada mes por la columna elegida.
+    // Si se ordena por fecha de más reciente a más antigua, los meses también van del más reciente al más antiguo.
     const meses = [...new Set(pend.map(p => p.fecha.slice(0, 7)))].sort();
-    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+    if (ordenPant.liq.col === 'fecha' && ordenPant.liq.dir === -1) meses.reverse();
+    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('liq', 'fecha', 'Fecha') + thOrden('liq', 'cliente', 'Cliente') + thOrden('liq', 'importe', 'Importe', 'text-align:right') + '</tr></thead><tbody>';
     meses.forEach(m => {
-      const delMes = pend.filter(p => p.fecha.startsWith(m)).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || (a.fecha < b.fecha ? -1 : 1));
+      const delMes = ordenarLista(pend.filter(p => p.fecha.startsWith(m)), 'liq');
       const marc = delMes.filter(p => !liqPant.desmarcados.has(p.id));
       h += `<tr class="liq-mes"><td><input type="checkbox" ${marc.length === delMes.length ? 'checked' : ''} onchange="liqToggleMes('${m}', this.checked)"></td>
         <td colspan="2">${escHtml(nombreMes(m))} · ${marc.length} de ${delMes.length} marcados</td><td class="num">${fmt(sumar2(marc))} €</td></tr>`;
@@ -2245,18 +2283,22 @@ let concVista = { movs: [], pend: [], props: [] };
 
 function renderConciliacion() {
   const elM = document.getElementById('concMovs'); if (!elM) return;
-  const movs = getIngresosBancoSinConciliar();
-  const pend = getPendientesTransferencia();
-  if (concPant.movId && !movs.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
-  [...concPant.sel].forEach(id => { if (!pend.some(p => p.id === id)) concPant.sel.delete(id); });
-  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pend)) };
+  const movsOrigen = getIngresosBancoSinConciliar();
+  const pendOrigen = getPendientesTransferencia();
+  if (concPant.movId && !movsOrigen.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
+  [...concPant.sel].forEach(id => { if (!pendOrigen.some(p => p.id === id)) concPant.sel.delete(id); });
+  // Se ordena lo que se dibuja, y concVista guarda ese mismo orden (los botones se refieren a la posición).
+  // Las propuestas se calculan con los pendientes en su orden de origen para que no dependan del orden elegido.
+  const movs = ordenarLista(movsOrigen, 'concMov');
+  const pend = ordenarLista(pendOrigen, 'concTk');
+  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pendOrigen)) };
 
   if (!(state.caixaRawRows || []).length) {
     elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay extracto del banco cargado. Súbelo con «La Caixa» en la carga de datos.</p></div>';
   } else if (!movs.length) {
     elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No quedan ingresos del banco por conciliar.</p></div>';
   } else {
-    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
+    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('concMov', 'fecha', 'Fecha') + thOrden('concMov', 'concepto', 'Concepto') + thOrden('concMov', 'importe', 'Importe', 'text-align:right') + '<th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
       movs.map((m, i) => {
         const props = concVista.props[i].map((q, k) => {
           const cli = escHtml(q.tickets[0].cliente);
@@ -2275,7 +2317,7 @@ function renderConciliacion() {
   if (!pend.length) {
     elT.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay pendientes por transferencia.</p></div>';
   } else {
-    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>' +
+    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('concTk', 'fecha', 'Fecha') + thOrden('concTk', 'cliente', 'Cliente') + thOrden('concTk', 'importe', 'Importe', 'text-align:right') + '</tr></thead><tbody>' +
       pend.map((p, i) => `<tr><td><input type="checkbox" ${concPant.sel.has(p.id) ? 'checked' : ''} onchange="concToggle(${i}, this.checked)"></td>
         <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`).join('') + '</tbody></table>';
   }
