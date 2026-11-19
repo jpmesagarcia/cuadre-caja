@@ -735,6 +735,17 @@
   body.dark .pend-badge.pen { background:#3a3118; color:#e6c36a; }
   .pend-del { background:none; border:none; cursor:pointer; color:var(--muted2); font-size:.9rem; padding:0 6px; }
   .pend-del:hover { color:var(--err); }
+  .liq-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px 18px; margin:4px 0 22px; }
+  .liq-card h3 { font-family:'Cormorant Garamond',serif; font-size:1.2rem; color:var(--teal); margin:0 0 4px; }
+  .liq-form { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin:14px 0 8px; }
+  .liq-form label { display:flex; flex-direction:column; gap:3px; font-size:.72rem; color:var(--muted); }
+  .liq-form input { background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:6px 8px; border-radius:5px; font-family:'Jost',sans-serif; font-size:.82rem; }
+  .liq-form input.nota { min-width:220px; }
+  .liq-resumen { font-size:.82rem; margin:6px 0 10px; }
+  .liq-resumen .liq-aviso { color:var(--err); font-weight:600; }
+  .liq-resumen .liq-ok { color:var(--teal); font-weight:600; }
+  .liq-mes td { background:var(--teal-lt); font-weight:600; }
+  .liq-tabla { max-height:340px; overflow:auto; margin-bottom:6px; }
   .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
@@ -1457,10 +1468,27 @@
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:16px">
         Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
         Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
-        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Marcarlos como cobrados llegará con la
-        liquidación con Lucía y la conciliación con el banco.
+        (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Los de efectivo se marcan como cobrados
+        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, con la conciliación con el banco (llegará).
       </p>
       <div class="stats-grid" id="pendTotales"></div>
+      <div class="liq-card" id="liqCard">
+        <h3>💵 Liquidación con Lucía</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin:0">
+          Lo que Lucía devuelve en efectivo, normalmente todo de una vez a final de mes. Están marcados todos sus pendientes:
+          desmarca los que falten. Al registrarla, esos tickets pasan a cobrados y el dinero entra en <b>Cajas física</b> y en el arqueo
+          el día de la entrega. El cuadre de cada día no cambia.
+        </p>
+        <div id="liqLista" class="liq-tabla"></div>
+        <div class="liq-form">
+          <label>Fecha de la entrega <input type="date" id="liqFecha" oninput="liqCambio()"></label>
+          <label>Importe entregado (€) <input type="number" id="liqImporte" step="0.01" min="0" style="width:130px" oninput="liqImporteTecleado()"></label>
+          <label>Nota <input type="text" id="liqNota" class="nota" maxlength="120" placeholder="—"></label>
+          <button class="btn" id="liqBtn" onclick="liqRegistrar()">Registrar liquidación</button>
+        </div>
+        <div id="liqResumen" class="liq-resumen"></div>
+        <div id="liqHistorial"></div>
+      </div>
       <div class="pend-filtros">
         <select id="pendEstado" onchange="renderPendientes()">
           <option value="pendiente">Pendientes</option>
@@ -1576,7 +1604,7 @@
 const STORAGE_KEY = 'cuadre_caja_v3';
 const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
 const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
-const BACKUP_SCHEMA   = 2;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets)
+const BACKUP_SCHEMA   = 3;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía)
 const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
 let guardadoFallido = false;        // el último guardado falló
@@ -1605,6 +1633,7 @@ function buildPersistedState() {
     saldosPorMes: state.saldosPorMes,
     libroPorMes: state.libroPorMes,
     pendientes: state.pendientes,
+    liquidaciones: state.liquidaciones,
     clientes: state.clientes,
     formsData: state.formsData
   };
@@ -1807,6 +1836,63 @@ function eliminarPendiente(id) {
   return true;
 }
 
+// ─── Liquidación con Lucía ─────────────────────────────────────────────────
+// Lucía cobra a sus clientes y devuelve el dinero a la farmacia en efectivo, normalmente todo de una vez a
+// final de mes. Cada devolución es una liquidación: {id, fecha (el día que entrega el dinero), importe (lo
+// que entrega), ticketIds, nota}. Marca sus tickets como cobrados (ref = id de la liquidación) y el importe
+// entra en Cajas física como «Devoluciones de Lucía» el día de la fecha. Los tickets siguen contando en el
+// efectivo del día de la venta (cuadre diario): lo único que se mueve es el dinero que llega a la caja.
+// La diferencia entre lo entregado y la suma de los tickets se enseña, no se corrige.
+function nuevoIdLiquidacion() {
+  return 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Lo que Lucía todavía debe en efectivo, del más antiguo al más reciente.
+function getPendientesEfectivo() {
+  return state.pendientes
+    .filter(p => p.estado !== 'cobrado' && p.pago === 'efectivo')
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.cliente.localeCompare(b.cliente, 'es'));
+}
+
+// Devuelve la liquidación creada, o null si los datos no valen (fecha, importe, o algún ticket que no esté
+// pendiente en efectivo). Si devuelve null no ha cambiado nada.
+function registrarLiquidacion({ fecha, importe, ticketIds, nota }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || '')) return null;
+  const imp = Math.round(Number(importe) * 100) / 100;
+  if (!isFinite(imp) || imp < 0) return null;
+  const ids = [...new Set(ticketIds || [])];
+  const tks = ids.map(id => state.pendientes.find(p => p.id === id));
+  if (!tks.length || tks.some(p => !p || p.estado === 'cobrado' || p.pago !== 'efectivo')) return null;
+  const liq = { id: nuevoIdLiquidacion(), fecha, importe: imp, ticketIds: ids, nota: (nota || '').toString().trim() };
+  tks.forEach(p => { p.estado = 'cobrado'; p.fechaCobro = fecha; p.ref = liq.id; });
+  state.liquidaciones.push(liq);
+  state.liquidaciones.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+  return liq;
+}
+
+// Deshace una liquidación: sus tickets vuelven a pendientes y el dinero deja de contar en la caja.
+function deshacerLiquidacion(id) {
+  const i = state.liquidaciones.findIndex(l => l.id === id);
+  if (i < 0) return false;
+  const liq = state.liquidaciones[i];
+  liq.ticketIds.forEach(tid => {
+    const p = state.pendientes.find(x => x.id === tid);
+    if (p && p.ref === liq.id) { p.estado = 'pendiente'; p.fechaCobro = null; p.ref = ''; }
+  });
+  state.liquidaciones.splice(i, 1);
+  return true;
+}
+
+// Suma de los tickets de una liquidación (los cobrados no se pueden editar, así que no cambia).
+function getSumaLiquidacion(liq) {
+  return sumar2(liq.ticketIds.map(id => state.pendientes.find(p => p.id === id)).filter(Boolean));
+}
+
+// Lo que Lucía ha entregado un día (para Cajas física).
+function getDevolucionesDia(ds) {
+  return Math.round(state.liquidaciones.filter(l => l.fecha === ds).reduce((s, l) => s + (l.importe || 0), 0) * 100) / 100;
+}
+
 // ─── Pestaña Pendientes ────────────────────────────────────────────────────
 const pendFiltro = { mes: 'todos' };   // solo de pantalla: no se guarda
 const escHtml = t => (t == null ? '' : t.toString()).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1829,6 +1915,7 @@ function renderPendientes() {
     `<div class="kpi-card"><div class="kpi-label">Total pendiente</div>
        <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
        <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
+  renderLiquidacion();
   document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
 
   // meses con apuntes (por fecha de la venta)
@@ -1877,6 +1964,131 @@ function renderPendientes() {
         <td><input type="checkbox" ${c.entidad ? 'checked' : ''} onchange="pendToggleEntidad(${i}, this.checked)"></td>
         <td class="num">${deben.length ? fmt(sumar2(deben)) + ' €' : '—'}</td></tr>`;
     }).join('') + '</tbody></table>';
+}
+
+// ─── Pantalla de la liquidación con Lucía ──────────────────────────────────
+// Solo de pantalla (no se guarda): qué tickets se han desmarcado (los nuevos nacen marcados), y si el importe
+// entregado lo ha tecleado la persona (si no, es siempre la suma de los marcados).
+const liqPant = { desmarcados: new Set(), importeManual: false };
+
+function hoyLocalISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function liqMarcados() {
+  return getPendientesEfectivo().filter(p => !liqPant.desmarcados.has(p.id));
+}
+
+function renderLiquidacion() {
+  const lista = document.getElementById('liqLista'); if (!lista) return;
+  const fecha = document.getElementById('liqFecha');
+  if (!fecha.value) fecha.value = hoyLocalISO();
+  const pend = getPendientesEfectivo();
+  if (!pend.length) {
+    lista.innerHTML = '<div class="empty-state" style="padding:14px"><p>Lucía no debe nada en efectivo.</p></div>';
+  } else {
+    const meses = [...new Set(pend.map(p => p.fecha.slice(0, 7)))].sort();
+    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+    meses.forEach(m => {
+      const delMes = pend.filter(p => p.fecha.startsWith(m)).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || (a.fecha < b.fecha ? -1 : 1));
+      const marc = delMes.filter(p => !liqPant.desmarcados.has(p.id));
+      h += `<tr class="liq-mes"><td><input type="checkbox" ${marc.length === delMes.length ? 'checked' : ''} onchange="liqToggleMes('${m}', this.checked)"></td>
+        <td colspan="2">${escHtml(nombreMes(m))} · ${marc.length} de ${delMes.length} marcados</td><td class="num">${fmt(sumar2(marc))} €</td></tr>`;
+      delMes.forEach(p => {
+        h += `<tr><td><input type="checkbox" ${liqPant.desmarcados.has(p.id) ? '' : 'checked'} onchange="liqToggle('${p.id}', this.checked)"></td>
+          <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`;
+      });
+    });
+    lista.innerHTML = h + '</tbody></table>';
+  }
+  liqActualizarResumen();
+  renderLiquidacionHistorial();
+}
+
+// Recalcula el importe propuesto, el aviso de diferencia y el botón, sin tocar la lista (así no se pierde el foco al teclear).
+function liqActualizarResumen() {
+  const marc = liqMarcados();
+  const suma = sumar2(marc);
+  const inp = document.getElementById('liqImporte');
+  if (!liqPant.importeManual) inp.value = marc.length ? suma.toFixed(2) : '';
+  const entregado = inp.value === '' ? NaN : Math.round(parseFloat(inp.value) * 100) / 100;
+  const fecha = document.getElementById('liqFecha').value;
+  const res = document.getElementById('liqResumen');
+  const masReciente = marc.length ? marc.map(p => p.fecha).sort().pop() : null;
+  const dif = Math.round((entregado - suma) * 100) / 100;
+  let t = marc.length
+    ? `${marc.length} ticket${marc.length === 1 ? '' : 's'} marcado${marc.length === 1 ? '' : 's'}: suman <b>${fmt(suma)} €</b>.`
+    : 'No hay ningún ticket marcado.';
+  if (marc.length && !isNaN(entregado)) {
+    t += dif === 0
+      ? ' <span class="liq-ok">✓ Coincide con lo entregado.</span>'
+      : ` <span class="liq-aviso">⚠️ No coincide: Lucía entrega ${fmt(Math.abs(dif))} € ${dif < 0 ? 'menos' : 'más'} que la suma de los tickets.</span> Se registra tal cual y la diferencia queda en el historial.`;
+  }
+  if (masReciente && fecha && fecha < masReciente) t += ` <span class="liq-aviso">⚠️ La fecha de la entrega es anterior a un ticket marcado (${fechaDMA(masReciente)}).</span>`;
+  res.innerHTML = t;
+  document.getElementById('liqBtn').disabled = !(marc.length && fecha && !isNaN(entregado) && entregado >= 0);
+}
+
+function renderLiquidacionHistorial() {
+  const el = document.getElementById('liqHistorial'); if (!el) return;
+  if (!state.liquidaciones.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<h4 style="font-size:.82rem;color:var(--teal);margin:14px 0 6px">Liquidaciones registradas</h4>' +
+    '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Tickets</th><th style="text-align:right">Suma</th><th style="text-align:right">Entregado</th><th style="text-align:right">Diferencia</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    [...state.liquidaciones].reverse().map(l => {
+      const suma = getSumaLiquidacion(l), dif = Math.round((l.importe - suma) * 100) / 100;
+      return `<tr><td class="mono">${fechaDMA(l.fecha)}</td><td>${l.ticketIds.length}</td><td class="num">${fmt(suma)} €</td><td class="num">${fmt(l.importe)} €</td>
+        <td class="num" style="${dif ? 'color:var(--err);font-weight:600' : ''}">${dif ? (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €' : '—'}</td>
+        <td>${escHtml(l.nota) || '—'}</td>
+        <td><button class="pend-del" title="Deshacer: los tickets vuelven a pendientes y el dinero sale de Cajas física" onclick="liqDeshacer('${l.id}')">↩ Deshacer</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function liqToggle(id, marcado) {
+  if (marcado) liqPant.desmarcados.delete(id); else liqPant.desmarcados.add(id);
+  liqPant.importeManual = false;       // al cambiar la selección, el importe vuelve a ser la suma
+  renderLiquidacion();
+}
+
+function liqToggleMes(mes, marcado) {
+  getPendientesEfectivo().filter(p => p.fecha.startsWith(mes)).forEach(p => { if (marcado) liqPant.desmarcados.delete(p.id); else liqPant.desmarcados.add(p.id); });
+  liqPant.importeManual = false;
+  renderLiquidacion();
+}
+
+function liqImporteTecleado() { liqPant.importeManual = true; liqActualizarResumen(); }
+function liqCambio() { liqActualizarResumen(); }
+
+function liqRegistrar() {
+  const marc = liqMarcados();
+  const fecha = document.getElementById('liqFecha').value;
+  const raw = document.getElementById('liqImporte').value;
+  const importe = raw === '' ? NaN : parseFloat(raw);
+  if (!marc.length || !fecha || isNaN(importe) || importe < 0) return;
+  const suma = sumar2(marc), dif = Math.round((importe - suma) * 100) / 100;
+  if (dif !== 0 && !confirm('Lucía entrega ' + fmt(importe) + ' € y los ' + marc.length + ' tickets suman ' + fmt(suma) + ' € (diferencia de ' + (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €).\n\nEl dinero que entra en la caja es lo entregado (' + fmt(importe) + ' €) y la diferencia queda anotada en el historial.\n\n¿Registrar la liquidación?')) return;
+  const liq = registrarLiquidacion({ fecha, importe, ticketIds: marc.map(p => p.id), nota: document.getElementById('liqNota').value });
+  if (!liq) { alert('No se ha podido registrar la liquidación: algún ticket ya no está pendiente en efectivo. No se ha cambiado nada.'); renderPendientes(); return; }
+  liqPant.desmarcados.clear(); liqPant.importeManual = false;
+  document.getElementById('liqNota').value = '';
+  liqTrasCambio();
+  toast('✅ Liquidación registrada: ' + fmt(liq.importe) + ' € entran en Cajas física el ' + fechaDMA(liq.fecha));
+}
+
+function liqDeshacer(id) {
+  const l = state.liquidaciones.find(x => x.id === id); if (!l) return;
+  if (!confirm('¿Deshacer la liquidación del ' + fechaDMA(l.fecha) + ' (' + fmt(l.importe) + ' €, ' + l.ticketIds.length + ' tickets)?\n\nLos tickets vuelven a pendientes y ese dinero deja de contar en Cajas física y en el arqueo.')) return;
+  deshacerLiquidacion(id);
+  liqPant.desmarcados.clear(); liqPant.importeManual = false;
+  liqTrasCambio();
+  toast('↩ Liquidación deshecha');
+}
+
+// Lo que depende de las liquidaciones: la lista, Cajas física, el arqueo y la tarjeta del día abierto (los tickets cobrados no se borran).
+function liqTrasCambio() {
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) renderLuciaSection(ds);
+  recalcAll(); renderDayGrid(); saveState(); renderPendientes();
 }
 
 function pendCambiarPago(id, pago) {
@@ -1941,6 +2153,7 @@ function loadState() {
     state.saldosPorMes    = saved.saldosPorMes    || {};
   state.libroPorMes     = saved.libroPorMes     || {};
     state.pendientes      = saved.pendientes      || [];
+    state.liquidaciones   = saved.liquidaciones   || [];   // copias y datos del esquema 2 no las tienen
     state.clientes        = saved.clientes        || clientesIniciales();
   state.formsData       = saved.formsData       || {};
     return Object.keys(state.farmatic).length > 0;
@@ -2027,6 +2240,7 @@ function resumenCopia(d) {
     diasConEfectivo: dias.filter(x => x && (x.employees || []).some(e => (e.efectivo || 0) > 0)).length,
     // esquema 2: libro de pendientes; copias del esquema 1: tickets dentro de cada día
     pendientes: (d.pendientes !== undefined ? (d.pendientes || []).length : dias.reduce((s, x) => s + ((x && x.luciaTickets) || []).length, 0)),
+    liquidaciones: (d.liquidaciones || []).length,
     mesesConLibro: Object.keys(d.libroPorMes || {}).length,
     mesesConSaldo: Object.keys(d.saldosPorMes || {}).length,
     arqueosGuardados: (d.arqueoHistorico || []).length,
@@ -2070,7 +2284,7 @@ function validarCopiaCompleta(o) {
   if (!esObj(d)) return 'La copia no contiene datos.';
   for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
-  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'clientes'])
+  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'clientes'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   if (d.libro !== undefined && (d.libro === null || typeof d.libro !== 'object')) return 'El campo «libro» no tiene el formato esperado.';
   if (d.arqueo !== undefined && d.arqueo !== null && !esObj(d.arqueo)) return 'El campo «arqueo» no tiene el formato esperado.';
@@ -2109,7 +2323,7 @@ function aplicarCopiaCompleta(obj, nombreFichero) {
     'Fichero: ' + nombreFichero,
     'Hecha el: ' + cuando,
     'Mes: ' + (r.mes || '—'),
-    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Pendientes de cobro: ' + r.pendientes,
+    'Farmatic: ' + r.diasFarmatic + ' días · Efectivo: ' + r.diasConEfectivo + ' días · Pendientes de cobro: ' + r.pendientes + ' · Liquidaciones con Lucía: ' + r.liquidaciones,
     'Meses con libro: ' + r.mesesConLibro + ' · Meses con saldo: ' + r.mesesConSaldo + ' · Arqueos: ' + r.arqueosGuardados,
     '',
     'Esto SUSTITUYE todos los datos actuales de este navegador.' + (hayActuales ? ' Antes se descargará una copia de lo que hay ahora.' : ''),
@@ -2239,7 +2453,7 @@ function estadoPersistidoVacio() {
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
     arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {},
-    pendientes: [], clientes: clientesIniciales(), formsData: {}
+    pendientes: [], liquidaciones: [], clientes: clientesIniciales(), formsData: {}
   };
 }
 
@@ -2287,6 +2501,7 @@ const state = {
   esperadoPorMes: {}, // 'YYYY-MM' -> {valor, fecha}: efectivo esperado en caja al cierre de cada mes, con los datos de ese mes (E-14)
   saldosPorMes: {},   // saldo inicial TECLEADO a mano; el heredado no se guarda aquí, se calcula (getSaldoInicial)
   pendientes: [],     // libro de pendientes de cobro, independiente del mes y de las tarjetas diarias (ver «Libro de pendientes»)
+  liquidaciones: [],  // devoluciones de Lucía: [{id, fecha, importe, ticketIds, nota}] (ver «Liquidación con Lucía»)
   clientes: clientesIniciales(),   // [{nombre, entidad}]: clientes de los pendientes; entidad = paga por transferencia (E-29)
   formsData: {},
   defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia'],
@@ -3683,34 +3898,44 @@ function calcTicketsMes() {
 }
 
 // Las dos cajas del mes y la línea de puente que las une:
-//   Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
-// (los gastos se suman porque Cajas actual los resta y Cajas física no).
+//   Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes + devoluciones de Lucía = Cajas física
+// (los gastos se suman porque Cajas actual los resta y Cajas física no; las devoluciones de Lucía, porque el
+// dinero que entrega entra en la caja física pero Cajas actual no lo conoce: ya contó sus tickets el día de la venta).
 // `sinExplicar` es lo que sobra o falta para que el puente cuadre: debe ser 0.
+// Las filas son los días con datos de Farmatic del mes más los días en que Lucía entregó dinero, aunque ese día no
+// haya ficha (domingo, festivo): una devolución nunca se queda fuera por la fecha.
 function calcCajaFisica() {
   const saldo0 = getSaldoInicial(state.month).valor;
   const lt = getLibroTotals();
+  const conFicha = new Set(state.daysInMonth);
+  const fechas = [...new Set([...state.daysInMonth,
+    ...state.liquidaciones.filter(l => state.month && l.fecha.startsWith(state.month)).map(l => l.fecha)])].sort();
   const filas = [];
-  let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0;
-  state.daysInMonth.forEach(ds => {
-    const ef     = Math.round(getDayEfectivoFisico(ds)*100)/100;
-    const gastos = state.days[ds]?.gastos||0;
-    const cajero = state.cajero?.[ds]||0;
-    acumFisico = Math.round((acumFisico + ef - cajero)*100)/100;                       // los gastos no restan (E-47)
-    acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
+  let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0, devolucionesMes = 0;
+  fechas.forEach(ds => {
+    const ficha  = conFicha.has(ds);
+    const ef     = ficha ? Math.round(getDayEfectivoFisico(ds)*100)/100 : 0;
+    const gastos = ficha ? (state.days[ds]?.gastos||0) : 0;
+    const cajero = ficha ? (state.cajero?.[ds]||0) : 0;
+    const dev    = getDevolucionesDia(ds);
+    acumFisico = Math.round((acumFisico + ef + dev - cajero)*100)/100;                 // los gastos no restan (E-47)
+    if (ficha) acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
     gastosMes  = Math.round((gastosMes + gastos)*100)/100;
-    filas.push({ds, ef, cajero, gastos, acum: acumFisico});
+    devolucionesMes = Math.round((devolucionesMes + dev)*100)/100;
+    filas.push({ds, ef, cajero, gastos, dev, ficha, acum: acumFisico});
   });
   // El neto del Libro entra igual en las dos
   acumFisico = Math.round((acumFisico + lt.net)*100)/100;
   acumActual = Math.round((acumActual + lt.net)*100)/100;
   const tickets = calcTicketsMes();
-  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes)*100)/100;
-  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, resultado,
+  const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes + devolucionesMes)*100)/100;
+  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
           sinExplicar: Math.round((acumFisico - resultado)*100)/100};
 }
 
-// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo − ingresos en cajero + Libro).
+// Efectivo esperado en caja del mes actual: Cajas física (saldo inicial + efectivo + devoluciones de Lucía − ingresos en cajero + Libro).
 // No resta tickets (E-02) ni gastos (E-47): ninguno de los dos está en el efectivo que apuntan las empleadas.
+// Suma lo que Lucía ya ha devuelto (E-01): ese dinero sí está en la caja.
 // Lo usan el arqueo y el registro del esperado de cada mes.
 function calcEfectivoActivo() {
   const c = calcCajaFisica();
@@ -4341,7 +4566,7 @@ function renderLuciaSection(ds) {
       <div class="lucia-ticket">
         <span class="t-client">${t.pago === 'transferencia' ? '🏦 ' : ''}${escHtml(t.cliente)}</span>
         <span class="t-amount">${fmt(t.importe)} €</span>
-        <button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>
+        ${t.estado === 'cobrado' ? `<span class="pend-badge" title="Cobrado el ${fechaDMA(t.fechaCobro)}: ya está en una liquidación">Cobrado</span>` : `<button class="t-del" onclick="removeLuciaTicket('${t.id}')" title="Eliminar">✕</button>`}
       </div>`).join('');
   }
   // Sync Lucía employee efectivo with ticket total
@@ -4542,18 +4767,20 @@ function renderCajas() {
 
 // Cajas física en pantalla, debajo de Cajas actual, y la línea de puente que las une.
 // La última columna enseña los tickets de cada día: no entran en Cajas física, y son justo la diferencia con Cajas actual.
+// Las devoluciones de Lucía sí entran: son el dinero de esos tickets cuando por fin llega a la caja.
 function renderCajasFisica() {
   const c = calcCajaFisica();
   let html = `<thead><tr>
-    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Caixa</th><th>Gastos (no restan)</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
+    <th>Fecha</th><th>Concepto</th><th>Caja</th><th>Devoluciones de Lucía</th><th>Caixa</th><th>Gastos (no restan)</th><th>Efectivo total</th><th>Tickets del día (no entran)</th>
   </tr></thead><tbody>`;
-  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
+  html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
   c.filas.forEach(f => {
     const tk = getLuciaTotal(f.ds);
     html += `<tr>
       <td>${f.ds.slice(5)}</td>
-      <td style="text-align:left;color:var(--muted)">${f.ds}</td>
-      <td>${fmt(f.ef)}</td>
+      <td style="text-align:left;color:var(--muted)">${f.ds}${f.dev ? ' · Lucía devuelve' : ''}${f.ficha ? '' : ' · sin ficha de efectivo'}</td>
+      <td>${f.ficha ? fmt(f.ef) : '—'}</td>
+      <td>${f.dev ? `<span style="color:var(--teal);font-weight:600">+${fmt(f.dev)}</span>` : '—'}</td>
       <td>${f.cajero ? `<span style="color:var(--err)">−${fmt(f.cajero)}</span>` : '—'}</td>
       <td style="color:var(--muted)">${f.gastos ? fmt(f.gastos) : '—'}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(f.acum)}</td>
@@ -4565,7 +4792,7 @@ function renderCajasFisica() {
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
       : `<span style="color:var(--teal);font-weight:600">+${fmt(c.libro)} €</span>`;
     html += `<tr style="background:var(--gold-lt);font-weight:600">
-      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>${gastoStr}</td>
+      <td>—</td><td style="text-align:left;color:var(--teal)">Libro (este sí entra en el total)</td><td>—</td><td>—</td><td>—</td><td>${gastoStr}</td>
       <td style="font-weight:600;color:var(--teal)">${fmt(c.acumFisico)}</td><td>—</td>
     </tr>`;
   }
@@ -4576,6 +4803,7 @@ function renderCajasFisica() {
   p += `<tr><td style="text-align:left">− Tickets de Lucía en efectivo (pendientes de que los devuelva)</td><td style="color:var(--err)">−${fmt(c.tickets.efectivo)} €</td></tr>`;
   p += `<tr><td style="text-align:left">− Tickets por transferencia (entidades: entran en el banco, no en la caja)</td><td style="color:var(--err)">−${fmt(c.tickets.transferencia)} €</td></tr>`;
   p += `<tr><td style="text-align:left">+ Gastos del mes (las empleadas cuentan la caja después de sacar ese dinero)</td><td style="color:var(--teal)">+${fmt(c.gastosMes)} €</td></tr>`;
+  p += `<tr><td style="text-align:left">+ Devoluciones de Lucía registradas en el mes (el dinero que ya ha entregado)</td><td style="color:var(--teal)">+${fmt(c.devolucionesMes)} €</td></tr>`;
   p += `<tr style="background:var(--gold-lt);font-weight:700"><td style="text-align:left">= Efectivo total de Cajas física</td><td style="color:var(--teal)">${fmt(c.resultado)} €</td></tr>`;
   if (c.sinExplicar !== 0) {
     p += `<tr style="font-weight:600"><td style="text-align:left;color:var(--err)">Sin explicar: Cajas física no coincide con el puente (suele ser un día con tickets cuya ficha no incluye a Lucía)</td><td style="color:var(--err)">${(c.sinExplicar>0?'+':'')+fmt(c.sinExplicar)} €</td></tr>`;
@@ -4998,42 +5226,45 @@ function exportExcelCore() {
   // ── 4a. CAJAS FÍSICA (en paralelo a «Cajas», que no se toca) ──────────────
   // Misma tabla, pero solo con el dinero que ha pasado por la caja (sin los tickets de Lucía ni de las
   // entidades) y una última columna con los tickets del día, que no entran. Debajo, el puente que la une
-  // con «Cajas». Usa el mismo cálculo que la pestaña Cajas y el arqueo (calcCajaFisica).
+  // con «Cajas». Usa el mismo cálculo que la pestaña Cajas y el arqueo (calcCajaFisica). La columna «Devoluciones
+  // de Lucía» es el dinero que ya ha entregado: entra en el total (los tickets, no).
   {
     const cf = calcCajaFisica();
     const cfRows = [
-      ['','','','','','','',''],
-      ['','','',monthName+' · Cajas física','','','',''],
-      ['','','','','','','',''],
-      ['','Fecha','Concepto','Caja','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
-      ['','','Inicio','','','',n2(cf.saldo0),''],
+      ['','','','','','','','',''],
+      ['','','',monthName+' · Cajas física','','','','',''],
+      ['','','','','','','','',''],
+      ['','Fecha','Concepto','Caja','Devoluciones de Lucía','Caixa','Gastos (no restan)','Efectivo total','Tickets del día (no entran)'],
+      ['','','Inicio','','','','',n2(cf.saldo0),''],
     ];
     cf.filas.forEach(f => {
-      cfRows.push(['', dateSerial(f.ds), f.ds, n2(f.ef), n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
+      cfRows.push(['', dateSerial(f.ds), f.ds + (f.dev ? ' · Lucía devuelve' : '') + (f.ficha ? '' : ' · sin ficha de efectivo'),
+        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
     });
     const cfLibroRow = cfRows.length;
-    cfRows.push(['','','Libro (sí entra en el total)','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
+    cfRows.push(['','','Libro (sí entra en el total)','','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
 
-    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes = Cajas física
-    cfRows.push(['','','','','','','','']);
+    // Puente: Cajas actual − tickets en efectivo − tickets por transferencia + gastos del mes + devoluciones de Lucía = Cajas física
+    cfRows.push(['','','','','','','','','']);
     const cfPuenteHdr = cfRows.length;
-    cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','Importe','']);
+    cfRows.push(['','Puente entre Cajas actual y Cajas física','','','','','','Importe','']);
     const cfPuente = [
       ['Efectivo total de la hoja Cajas', n2(cf.acumActual), {}],
       ['− Tickets de Lucía en efectivo (pendientes)', 0 - n2(cf.tickets.efectivo), {}],
       ['− Tickets por transferencia (van al banco)', 0 - n2(cf.tickets.transferencia), {}],
       ['+ Gastos del mes (ya fuera del efectivo apuntado)', n2(cf.gastosMes), {}],
+      ['+ Devoluciones de Lucía registradas en el mes (dinero ya entregado)', n2(cf.devolucionesMes), {}],
       ['= Efectivo total de Cajas física', n2(cf.resultado), {bold:true, bg:GOLD_LT}],
     ];
     if (cf.sinExplicar !== 0) {
       cfPuente.push(['Sin explicar (Cajas física no coincide con el puente)', n2(cf.sinExplicar), {bold:true, fontColor:'FFC00000'}]);
     }
     const cfPuenteFirst = cfRows.length;
-    cfPuente.forEach(p => cfRows.push(['', p[0], '', '', '', '', p[1], '']));
+    cfPuente.forEach(p => cfRows.push(['', p[0], '', '', '', '', '', p[1], '']));
 
     const wsCF = XLSX.utils.aoa_to_sheet(cfRows);
-    headerRow(wsCF, 3, 1, 7);
-    euroRow(wsCF, 4, 2, 7, BLUE_LT);
+    headerRow(wsCF, 3, 1, 8);
+    euroRow(wsCF, 4, 2, 8, BLUE_LT);
     const cfBorder = {top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}};
     for (let r=5; r<cfLibroRow; r++) {
       const bg3 = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
@@ -5042,31 +5273,31 @@ function exportExcelCore() {
         dC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'center',vertical:'center'},border:cfBorder}; }
       const cC = wsCF[XLSX.utils.encode_cell({r, c:2})];
       if (cC) cC.s={font:{name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'left',vertical:'center'},border:cfBorder};
-      euroRow(wsCF, r, 3, 7, bg3);
-      const etF = wsCF[XLSX.utils.encode_cell({r, c:6})];
+      euroRow(wsCF, r, 3, 8, bg3);
+      const etF = wsCF[XLSX.utils.encode_cell({r, c:7})];
       if (etF) etF.s={font:{bold:true,name:'Arial',sz:10,color:{rgb:'FF086C74'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
-      const tkF = wsCF[XLSX.utils.encode_cell({r, c:7})];
+      const tkF = wsCF[XLSX.utils.encode_cell({r, c:8})];
       if (tkF) tkF.s={font:{italic:true,name:'Arial',sz:10,color:{rgb:'FF7F7F7F'}},fill:{patternType:'solid',fgColor:{rgb:bg3}},alignment:{horizontal:'right',vertical:'center'},border:cfBorder};
     }
-    for (let c=1; c<=7; c++) {
+    for (let c=1; c<=8; c++) {
       const lF = wsCF[XLSX.utils.encode_cell({r:cfLibroRow, c})];
       if (lF) { if(typeof lF.v==='number'){lF.t='n';lF.z=FMT_EUR;}
         lF.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:c===2?'left':'right',vertical:'center'},
           border:{top:{style:'medium',color:{rgb:'FF086C74'}},bottom:{style:'medium',color:{rgb:'FF086C74'}},left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}}; }
     }
-    // Bloque del puente: la etiqueta ocupa de B a F (celdas combinadas) y el importe va en G
+    // Bloque del puente: la etiqueta ocupa de B a G (celdas combinadas) y el importe va en H
     wsCF['!merges'] = [];
-    for (let c=2; c<=5; c++) wsCF[XLSX.utils.encode_cell({r:cfPuenteHdr, c})] = {t:'s', v:''};
-    headerRow(wsCF, cfPuenteHdr, 1, 6);
-    wsCF['!merges'].push({s:{r:cfPuenteHdr,c:1}, e:{r:cfPuenteHdr,c:5}});
+    for (let c=2; c<=6; c++) wsCF[XLSX.utils.encode_cell({r:cfPuenteHdr, c})] = {t:'s', v:''};
+    headerRow(wsCF, cfPuenteHdr, 1, 7);
+    wsCF['!merges'].push({s:{r:cfPuenteHdr,c:1}, e:{r:cfPuenteHdr,c:6}});
     cfPuente.forEach((p, i) => {
       const r = cfPuenteFirst + i, o = p[2];
       setCell(wsCF, r, 1, p[0], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, align:'left'});
-      for (let c=2; c<=5; c++) setCell(wsCF, r, c, '', {bg:o.bg||null});
-      setCell(wsCF, r, 6, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
-      wsCF['!merges'].push({s:{r,c:1}, e:{r,c:5}});
+      for (let c=2; c<=6; c++) setCell(wsCF, r, c, '', {bg:o.bg||null});
+      setCell(wsCF, r, 7, p[1], {bold:!!o.bold, bg:o.bg||null, fontColor:o.fontColor||null, fmt:FMT_EUR});
+      wsCF['!merges'].push({s:{r,c:1}, e:{r,c:6}});
     });
-    fmtSheet(wsCF, [3,12,30,10,10,18,13,26]);
+    fmtSheet(wsCF, [3,12,30,10,14,10,18,13,26]);
     XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
   }
 
