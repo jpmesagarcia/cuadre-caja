@@ -746,6 +746,11 @@
   .liq-resumen .liq-ok { color:var(--teal); font-weight:600; }
   .liq-mes td { background:var(--teal-lt); font-weight:600; }
   .liq-tabla { max-height:340px; overflow:auto; margin-bottom:6px; }
+  .conc-grid { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; margin-top:12px; }
+  .conc-grid h4 { font-size:.82rem; color:var(--teal); margin:0 0 6px; }
+  @media (max-width: 900px) { .conc-grid { grid-template-columns:1fr; } }
+  .conc-prop { display:block; margin:3px 0; text-align:left; color:var(--teal); border:1px solid var(--border); border-radius:5px; padding:3px 8px; font-size:.74rem; background:var(--surface2); }
+  .conc-prop:hover { color:var(--teal); border-color:var(--teal); }
   .pend-addcli { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted); }
   .seg-table td.mono { font-family:'DM Mono',monospace; }
   .seg-table td.right { text-align:right; font-family:'DM Mono',monospace; font-weight:600; }
@@ -1469,7 +1474,7 @@
         Lo que se debe a la farmacia, de cualquier mes. Se apunta en cada día (Efectivo diario → Tickets pendientes).
         Dos circuitos según cómo llega el dinero: <b>efectivo</b> (vía Lucía, pasa por la caja) y <b>transferencia</b>
         (Hacienda, Colegio Laude…: entra en el banco, nunca pasa por la caja). Los de efectivo se marcan como cobrados
-        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, con la conciliación con el banco (llegará).
+        en la <b>liquidación con Lucía</b> (aquí debajo); los de transferencia, en la <b>conciliación con el banco</b>.
       </p>
       <div class="stats-grid" id="pendTotales"></div>
       <div class="liq-card" id="liqCard">
@@ -1488,6 +1493,24 @@
         </div>
         <div id="liqResumen" class="liq-resumen"></div>
         <div id="liqHistorial"></div>
+      </div>
+      <div class="liq-card" id="concCard">
+        <h3>🏦 Conciliación de transferencias</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin:0">
+          Los ingresos del extracto del banco que no son visas ni cajero (los de «Otros informes»), junto a los pendientes por transferencia.
+          Elige el ingreso y los tickets que paga, o pulsa una propuesta 💡 (importe exacto o suma exacta) y confírmala tú.
+          Al conciliar, los tickets pasan a cobrados con la fecha del banco. No mueve Cajas: ese dinero entra en el banco, no en la caja.
+        </p>
+        <div class="conc-grid">
+          <div><h4>Ingresos del banco sin conciliar</h4><div id="concMovs" class="liq-tabla"></div></div>
+          <div><h4>Pendientes por transferencia</h4><div id="concTickets" class="liq-tabla"></div></div>
+        </div>
+        <div class="liq-form">
+          <label>Nota <input type="text" id="concNota" class="nota" maxlength="120" placeholder="—"></label>
+          <button class="btn" id="concBtn" onclick="concRegistrar()">Conciliar</button>
+        </div>
+        <div id="concResumen" class="liq-resumen"></div>
+        <div id="concHistorial"></div>
       </div>
       <div class="pend-filtros">
         <select id="pendEstado" onchange="renderPendientes()">
@@ -2016,6 +2039,7 @@ function renderPendientes() {
        <div class="kpi-value">${fmt(sumar2(abiertos))} €</div>
        <div class="kpi-sub"><span>${abiertos.length}</span> en total, de ${new Set(abiertos.map(p => p.cliente)).size} cliente${new Set(abiertos.map(p => p.cliente)).size === 1 ? '' : 's'}</div></div>`;
   renderLiquidacion();
+  renderConciliacion();
   document.getElementById('pendChip').textContent = abiertos.length ? abiertos.length + ' pendiente' + (abiertos.length === 1 ? '' : 's') : '✅ Nada pendiente';
 
   // meses con apuntes (por fecha de la venta)
@@ -2189,6 +2213,128 @@ function liqTrasCambio() {
   const ds = state.selectedDay;
   if (ds && state.days[ds]) renderLuciaSection(ds);
   recalcAll(); renderDayGrid(); saveState(); renderPendientes();
+}
+
+// ─── Pantalla de la conciliación de transferencias ─────────────────────────
+// Solo de pantalla (no se guarda): el ingreso elegido y los tickets marcados. concVista guarda lo que se ha
+// dibujado (ingresos, pendientes y propuestas) para que los botones se refieran a ello por posición.
+const concPant = { movId: null, sel: new Set() };
+let concVista = { movs: [], pend: [], props: [] };
+
+function renderConciliacion() {
+  const elM = document.getElementById('concMovs'); if (!elM) return;
+  const movs = getIngresosBancoSinConciliar();
+  const pend = getPendientesTransferencia();
+  if (concPant.movId && !movs.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
+  [...concPant.sel].forEach(id => { if (!pend.some(p => p.id === id)) concPant.sel.delete(id); });
+  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pend)) };
+
+  if (!(state.caixaRawRows || []).length) {
+    elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay extracto del banco cargado. Súbelo con «La Caixa» en la carga de datos.</p></div>';
+  } else if (!movs.length) {
+    elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No quedan ingresos del banco por conciliar.</p></div>';
+  } else {
+    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
+      movs.map((m, i) => {
+        const props = concVista.props[i].map((q, k) => {
+          const cli = escHtml(q.tickets[0].cliente);
+          const txt = q.tipo === 'exacto'
+            ? `${cli} · ${fechaDMA(q.tickets[0].fecha)} · importe exacto`
+            : `${q.tickets.length} tickets de ${cli} · suma exacta`;
+          const tip = q.tickets.map(t => fechaDMA(t.fecha) + ' ' + t.cliente + ' ' + fmt(t.importe) + ' €').join('\n');
+          return `<button class="pend-del conc-prop" title="${escHtml(tip)}" onclick="concUsarPropuesta(${i}, ${k})">💡 ${txt}</button>`;
+        }).join('') || '<span style="color:var(--muted);font-size:.74rem">Sin propuesta</span>';
+        return `<tr><td><input type="radio" name="concMov" ${concPant.movId === m.id ? 'checked' : ''} onchange="concElegirMov(${i})"></td>
+          <td class="mono">${fechaDMA(m.fecha)}</td><td>${escHtml(m.concepto) || '—'}</td><td class="num">${fmt(m.importe)} €</td><td>${props}</td></tr>`;
+      }).join('') + '</tbody></table>';
+  }
+
+  const elT = document.getElementById('concTickets');
+  if (!pend.length) {
+    elT.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay pendientes por transferencia.</p></div>';
+  } else {
+    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>' +
+      pend.map((p, i) => `<tr><td><input type="checkbox" ${concPant.sel.has(p.id) ? 'checked' : ''} onchange="concToggle(${i}, this.checked)"></td>
+        <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`).join('') + '</tbody></table>';
+  }
+  concActualizarResumen();
+  renderConciliacionHistorial();
+}
+
+function concActualizarResumen() {
+  const mov = concVista.movs.find(m => m.id === concPant.movId);
+  const marc = concVista.pend.filter(p => concPant.sel.has(p.id));
+  const suma = sumar2(marc);
+  let t;
+  if (!mov && !marc.length) t = 'Elige un ingreso del banco y los tickets que paga, o usa una propuesta 💡.';
+  else if (!mov) t = `${marc.length} ticket${marc.length === 1 ? '' : 's'} marcado${marc.length === 1 ? '' : 's'} (<b>${fmt(suma)} €</b>). Falta elegir el ingreso del banco.`;
+  else if (!marc.length) t = `Ingreso elegido: <b>${fmt(mov.importe)} €</b>. Falta marcar los tickets que paga.`;
+  else {
+    const dif = Math.round((mov.importe - suma) * 100) / 100;
+    t = `Ingreso de <b>${fmt(mov.importe)} €</b> y ${marc.length} ticket${marc.length === 1 ? '' : 's'} que suman <b>${fmt(suma)} €</b>.` + (dif === 0
+      ? ' <span class="liq-ok">✓ Coincide.</span>'
+      : ` <span class="liq-aviso">⚠️ No coincide: el banco ingresa ${fmt(Math.abs(dif))} € ${dif > 0 ? 'más' : 'menos'} que la suma de los tickets.</span> Se registra tal cual y la diferencia queda en el historial.`);
+  }
+  document.getElementById('concResumen').innerHTML = t;
+  document.getElementById('concBtn').disabled = !(mov && marc.length);
+}
+
+function renderConciliacionHistorial() {
+  const el = document.getElementById('concHistorial'); if (!el) return;
+  if (!state.conciliaciones.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<h4 style="font-size:.82rem;color:var(--teal);margin:14px 0 6px">Conciliaciones registradas</h4>' +
+    '<table class="seg-table pend-tabla"><thead><tr><th>Fecha del banco</th><th>Concepto</th><th>Tickets</th><th style="text-align:right">Suma</th><th style="text-align:right">Ingreso</th><th style="text-align:right">Diferencia</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    [...state.conciliaciones].reverse().map(c => {
+      const suma = getSumaTickets(c.ticketIds), dif = Math.round((c.importe - suma) * 100) / 100;
+      return `<tr><td class="mono">${fechaDMA(c.fecha)}</td><td>${escHtml(c.concepto) || '—'}</td><td>${c.ticketIds.length}</td>
+        <td class="num">${fmt(suma)} €</td><td class="num">${fmt(c.importe)} €</td>
+        <td class="num" style="${dif ? 'color:var(--err);font-weight:600' : ''}">${dif ? (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €' : '—'}</td>
+        <td>${escHtml(c.nota) || '—'}</td>
+        <td><button class="pend-del" title="Deshacer: los tickets vuelven a pendientes y el ingreso vuelve a salir sin conciliar" onclick="concDeshacer('${c.id}')">↩ Deshacer</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function concElegirMov(i) { concPant.movId = concVista.movs[i].id; renderConciliacion(); }
+function concToggle(i, marcado) {
+  const id = concVista.pend[i].id;
+  if (marcado) concPant.sel.add(id); else concPant.sel.delete(id);
+  renderConciliacion();
+}
+// Una propuesta solo deja elegido el ingreso y marcados sus tickets: la confirmación sigue siendo a mano.
+function concUsarPropuesta(i, k) {
+  concPant.movId = concVista.movs[i].id;
+  concPant.sel = new Set(concVista.props[i][k].tickets.map(t => t.id));
+  renderConciliacion();
+}
+
+function concRegistrar() {
+  const mov = concVista.movs.find(m => m.id === concPant.movId);
+  const marc = concVista.pend.filter(p => concPant.sel.has(p.id));
+  if (!mov || !marc.length) return;
+  const suma = sumar2(marc), dif = Math.round((mov.importe - suma) * 100) / 100;
+  if (dif !== 0 && !confirm('El banco ingresa ' + fmt(mov.importe) + ' € y los ' + marc.length + ' tickets suman ' + fmt(suma) + ' € (diferencia de ' + (dif > 0 ? '+' : '−') + fmt(Math.abs(dif)) + ' €).\n\nTodos los tickets marcados pasan a cobrados y la diferencia queda anotada en el historial.\n\n¿Conciliar igualmente?')) return;
+  const c = registrarConciliacion({ movId: mov.id, ticketIds: marc.map(p => p.id), nota: document.getElementById('concNota').value });
+  if (!c) { alert('No se ha podido conciliar: el ingreso o algún ticket ya no está disponible. No se ha cambiado nada.'); renderPendientes(); return; }
+  concPant.movId = null; concPant.sel.clear();
+  document.getElementById('concNota').value = '';
+  concTrasCambio();
+  toast('✅ Conciliado: ' + marc.length + (marc.length === 1 ? ' ticket cobrado' : ' tickets cobrados') + ' con el ingreso del ' + fechaDMA(c.fecha));
+}
+
+function concDeshacer(id) {
+  const c = state.conciliaciones.find(x => x.id === id); if (!c) return;
+  if (!confirm('¿Deshacer la conciliación del ' + fechaDMA(c.fecha) + ' (' + fmt(c.importe) + ' €, ' + c.ticketIds.length + ' tickets)?\n\nLos tickets vuelven a pendientes y el ingreso vuelve a salir sin conciliar.')) return;
+  deshacerConciliacion(id);
+  concPant.movId = null; concPant.sel.clear();
+  concTrasCambio();
+  toast('↩ Conciliación deshecha');
+}
+
+// No mueve Cajas (esos tickets no entran en la caja), solo la lista y la tarjeta del día abierto (los cobrados no se borran).
+function concTrasCambio() {
+  const ds = state.selectedDay;
+  if (ds && state.days[ds]) renderLuciaSection(ds);
+  saveState(); renderPendientes();
 }
 
 function pendCambiarPago(id, pago) {
