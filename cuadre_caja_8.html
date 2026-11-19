@@ -268,6 +268,10 @@
   }
   table.data-table td:first-child { text-align: left; color: var(--muted); font-family: 'Jost', sans-serif; }
   table.data-table tr:hover td { background: var(--green-lt); }
+  /* Cajas física tiene ocho columnas con cabeceras largas: que las cabeceras y el concepto puedan partirse en dos líneas,
+     para que la tabla quepa en su hueco y las columnas del final (Efectivo total, Tickets del día) se vean sin desplazar. */
+  #tCajasFisica th { white-space: normal; }
+  #tCajasFisica td:nth-child(2) { white-space: normal; }
   .td-ok   { color: var(--ok); font-weight: 500; }
   .td-err  { color: var(--err); font-weight: 500; }
   .td-warn { color: var(--warn); }
@@ -718,11 +722,20 @@
     position:sticky; top:0;
   }
   .seg-table thead th:last-child { text-align:right; }
+  .seg-table thead th.th-orden { cursor:pointer; user-select:none; }
+  .seg-table thead th.th-orden:hover { text-decoration:underline; }
+  .seg-table thead th.th-orden.activo { font-weight:700; }
   .seg-table tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
   .seg-table tbody tr:hover { background:var(--teal-lt); }
   .seg-table td { padding:8px 14px; vertical-align:middle; }
   .cajas-sub { font-family:'Cormorant Garamond',serif; font-size:1.15rem; color:var(--teal); margin:22px 0 8px; font-weight:600; }
   .cajas-sub span { font-family:'Jost',sans-serif; font-size:.74rem; color:var(--muted); font-weight:400; }
+  /* Bloques plegables (<details>): la cabecera se pulsa para plegar; lo que lleva dentro se repinta sin perder si está plegado */
+  details.plegable > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline; gap:8px; user-select:none; }
+  details.plegable > summary::-webkit-details-marker { display:none; }
+  details.plegable > summary::before { content:'▾'; color:var(--teal); font-size:.85rem; width:14px; flex:none; }
+  details.plegable:not([open]) > summary::before { content:'▸'; }
+  details.plegable > summary:hover { opacity:.8; }
   .pend-filtros { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
   .pend-filtros select, .pend-filtros input, .pend-tabla select, .pend-tabla input[type=text], .pend-addcli input[type=text] {
     background:var(--surface2); border:1px solid var(--border); color:var(--text);
@@ -1234,18 +1247,24 @@
         <p>Completa los datos de efectivo<br>para ver el libro de cajas.</p>
       </div>
       <div id="cajasTable" style="display:none">
-        <h3 class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajas"></table>
-        </div>
-        <h3 class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajasFisica"></table>
-        </div>
-        <h3 class="cajas-sub">Puente entre las dos</h3>
-        <div class="data-table-wrap">
-          <table class="data-table" id="tCajasPuente"></table>
-        </div>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Cajas actual <span>· la de siempre, con los tickets dentro</span></summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajas"></table>
+          </div>
+        </details>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Cajas física <span>· en paralelo: solo el dinero que ha pasado por la caja</span></summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajasFisica"></table>
+          </div>
+        </details>
+        <details class="plegable" open>
+          <summary class="cajas-sub">Puente entre las dos</summary>
+          <div class="data-table-wrap">
+            <table class="data-table" id="tCajasPuente"></table>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -1512,32 +1531,37 @@
         <div id="concResumen" class="liq-resumen"></div>
         <div id="concHistorial"></div>
       </div>
-      <div class="pend-filtros">
-        <select id="pendEstado" onchange="renderPendientes()">
-          <option value="pendiente">Pendientes</option>
-          <option value="cobrado">Cobrados</option>
-          <option value="todos">Todos</option>
-        </select>
-        <select id="pendCircuito" onchange="renderPendientes()">
-          <option value="todos">Los dos circuitos</option>
-          <option value="efectivo">💵 Efectivo (vía Lucía)</option>
-          <option value="transferencia">🏦 Transferencia</option>
-        </select>
-        <select id="pendMes" onchange="renderPendientes()"></select>
-        <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
-      </div>
-      <div id="pendLista"></div>
-      <h3 style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--teal);margin:26px 0 6px">Clientes</h3>
-      <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
-        Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
-        Cambiarlo no toca los tickets ya apuntados.
-      </p>
-      <div id="pendClientes"></div>
-      <div class="pend-addcli">
-        <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
-        <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
-        <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
-      </div>
+      <details class="plegable" id="pendListaDet" open>
+        <summary class="cajas-sub">Listado de pendientes <span id="pendListaResumen"></span></summary>
+        <div class="pend-filtros">
+          <select id="pendEstado" onchange="renderPendientes()">
+            <option value="pendiente">Pendientes</option>
+            <option value="cobrado">Cobrados</option>
+            <option value="todos">Todos</option>
+          </select>
+          <select id="pendCircuito" onchange="renderPendientes()">
+            <option value="todos">Los dos circuitos</option>
+            <option value="efectivo">💵 Efectivo (vía Lucía)</option>
+            <option value="transferencia">🏦 Transferencia</option>
+          </select>
+          <select id="pendMes" onchange="renderPendientes()"></select>
+          <input type="text" id="pendTexto" placeholder="Buscar cliente…" oninput="renderPendientes()">
+        </div>
+        <div id="pendLista"></div>
+      </details>
+      <details class="plegable" id="pendClientesDet" open>
+        <summary class="cajas-sub">Clientes <span id="pendClientesResumen"></span></summary>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+          Marca como <b>entidad</b> a quien paga por transferencia: sus tickets nuevos se proponen por transferencia.
+          Cambiarlo no toca los tickets ya apuntados.
+        </p>
+        <div id="pendClientes"></div>
+        <div class="pend-addcli">
+          <input type="text" id="pendNuevoCliente" placeholder="Nuevo cliente…" maxlength="60">
+          <label><input type="checkbox" id="pendNuevoEntidad"> Entidad</label>
+          <button class="btn-ghost dark btn-sm" onclick="pendAddCliente()">+ Añadir cliente</button>
+        </div>
+      </details>
     </div>
 
     <!-- TAB: Seguimiento empleadas -->
@@ -2022,6 +2046,38 @@ const escHtml = t => (t == null ? '' : t.toString()).replace(/&/g, '&amp;').repl
 const fechaDMA = ds => ds ? ds.split('-').reverse().join('/') : '';
 const sumar2 = lista => Math.round(lista.reduce((a, p) => a + (p.importe || 0), 0) * 100) / 100;
 
+// Orden de las tablas de esta pestaña. Solo de pantalla (no se guarda): cada tabla tiene su columna y su sentido
+// (1 ascendente, −1 descendente). Pulsar la cabecera de otra columna ordena por ella; pulsar la misma, invierte.
+// Los nombres de columna son los de los campos del apunte (fecha, cliente, importe, pago, estado, concepto).
+const ordenPant = {
+  liq:     {col: 'cliente', dir: 1},   // el orden de siempre de la liquidación: por cliente y, dentro, por fecha
+  pend:    {col: 'fecha',   dir: 1},   // el orden de siempre del listado
+  concMov: {col: 'fecha',   dir: 1},
+  concTk:  {col: 'fecha',   dir: 1}
+};
+const ordenRepintar = {
+  liq: () => renderLiquidacion(), pend: () => renderPendientes(),
+  concMov: () => renderConciliacion(), concTk: () => renderConciliacion()
+};
+function cambiarOrden(tabla, col) {
+  const o = ordenPant[tabla];
+  if (o.col === col) o.dir = -o.dir; else { o.col = col; o.dir = 1; }
+  ordenRepintar[tabla]();
+}
+function thOrden(tabla, col, texto, estilo) {
+  const o = ordenPant[tabla], activo = o.col === col;
+  return `<th class="th-orden${activo ? ' activo' : ''}"${estilo ? ` style="${estilo}"` : ''} title="Ordenar por ${texto.toLowerCase()}" onclick="cambiarOrden('${tabla}','${col}')">${texto}${activo ? (o.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+}
+// Devuelve una copia ordenada; los empates conservan el orden de origen (fecha y luego cliente).
+function ordenarLista(lista, tabla) {
+  const {col, dir} = ordenPant[tabla];
+  const val = x => col === 'estado' ? (x.estado === 'cobrado' ? 1 : 0) : x[col];
+  return [...lista].sort((a, b) => {
+    const va = val(a), vb = val(b);
+    return dir * (typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va == null ? '' : va).localeCompare(String(vb == null ? '' : vb), 'es'));
+  });
+}
+
 function renderPendientes() {
   const tot = document.getElementById('pendTotales'); if (!tot) return;
   const abiertos = state.pendientes.filter(p => p.estado !== 'cobrado');
@@ -2052,18 +2108,18 @@ function renderPendientes() {
 
   const fe = document.getElementById('pendEstado').value, fc = document.getElementById('pendCircuito').value;
   const ft = normNombre(document.getElementById('pendTexto').value);
-  const lista = state.pendientes
+  const lista = ordenarLista(state.pendientes
     .filter(p => fe === 'todos' || (fe === 'cobrado') === (p.estado === 'cobrado'))
     .filter(p => fc === 'todos' || p.pago === fc)
     .filter(p => pendFiltro.mes === 'todos' || p.fecha.startsWith(pendFiltro.mes))
     .filter(p => !ft || normNombre(p.cliente).includes(ft))
-    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0), 'pend');
 
   const el = document.getElementById('pendLista');
   if (!lista.length) {
     el.innerHTML = '<div class="empty-state" style="padding:20px"><p>' + (state.pendientes.length ? 'Ningún apunte con estos filtros.' : 'Todavía no hay tickets pendientes.') + '</p></div>';
   } else {
-    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th><th>Pago</th><th>Estado</th><th>Nota</th><th></th></tr></thead><tbody>' +
+    el.innerHTML = '<table class="seg-table pend-tabla"><thead><tr>' + thOrden('pend', 'fecha', 'Fecha') + thOrden('pend', 'cliente', 'Cliente') + thOrden('pend', 'importe', 'Importe', 'text-align:right') + thOrden('pend', 'pago', 'Pago') + thOrden('pend', 'estado', 'Estado') + '<th>Nota</th><th></th></tr></thead><tbody>' +
       lista.map(p => {
         const cobrado = p.estado === 'cobrado';
         return `<tr>
@@ -2079,6 +2135,11 @@ function renderPendientes() {
       }).join('') +
       `<tr style="background:var(--teal-lt);font-weight:700"><td colspan="2">TOTAL (${lista.length})</td><td class="num">${fmt(sumar2(lista))} €</td><td colspan="4"></td></tr></tbody></table>`;
   }
+
+  // Lo que se ve en la cabecera cuando el bloque está plegado
+  document.getElementById('pendListaResumen').textContent = '· ' + lista.length + ' apunte' + (lista.length === 1 ? '' : 's') + (lista.length ? ' · ' + fmt(sumar2(lista)) + ' €' : '');
+  const conDeuda = new Set(abiertos.map(p => normNombre(p.cliente))).size;
+  document.getElementById('pendClientesResumen').textContent = '· ' + state.clientes.length + ' cliente' + (state.clientes.length === 1 ? '' : 's') + (conDeuda ? ' · ' + conDeuda + ' con pendiente' : '');
 
   // clientes
   document.getElementById('pendClientes').innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th>Cliente</th><th>Entidad (transferencia)</th><th style="text-align:right">Pendiente</th></tr></thead><tbody>' +
@@ -2112,10 +2173,13 @@ function renderLiquidacion() {
   if (!pend.length) {
     lista.innerHTML = '<div class="empty-state" style="padding:14px"><p>Lucía no debe nada en efectivo.</p></div>';
   } else {
+    // Los tickets se agrupan por mes (el mes manda en el arqueo) y se ordenan dentro de cada mes por la columna elegida.
+    // Si se ordena por fecha de más reciente a más antigua, los meses también van del más reciente al más antiguo.
     const meses = [...new Set(pend.map(p => p.fecha.slice(0, 7)))].sort();
-    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
+    if (ordenPant.liq.col === 'fecha' && ordenPant.liq.dir === -1) meses.reverse();
+    let h = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('liq', 'fecha', 'Fecha') + thOrden('liq', 'cliente', 'Cliente') + thOrden('liq', 'importe', 'Importe', 'text-align:right') + '</tr></thead><tbody>';
     meses.forEach(m => {
-      const delMes = pend.filter(p => p.fecha.startsWith(m)).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || (a.fecha < b.fecha ? -1 : 1));
+      const delMes = ordenarLista(pend.filter(p => p.fecha.startsWith(m)), 'liq');
       const marc = delMes.filter(p => !liqPant.desmarcados.has(p.id));
       h += `<tr class="liq-mes"><td><input type="checkbox" ${marc.length === delMes.length ? 'checked' : ''} onchange="liqToggleMes('${m}', this.checked)"></td>
         <td colspan="2">${escHtml(nombreMes(m))} · ${marc.length} de ${delMes.length} marcados</td><td class="num">${fmt(sumar2(marc))} €</td></tr>`;
@@ -2223,18 +2287,22 @@ let concVista = { movs: [], pend: [], props: [] };
 
 function renderConciliacion() {
   const elM = document.getElementById('concMovs'); if (!elM) return;
-  const movs = getIngresosBancoSinConciliar();
-  const pend = getPendientesTransferencia();
-  if (concPant.movId && !movs.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
-  [...concPant.sel].forEach(id => { if (!pend.some(p => p.id === id)) concPant.sel.delete(id); });
-  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pend)) };
+  const movsOrigen = getIngresosBancoSinConciliar();
+  const pendOrigen = getPendientesTransferencia();
+  if (concPant.movId && !movsOrigen.some(m => m.id === concPant.movId)) concPant.movId = null;   // ya conciliado o extracto nuevo
+  [...concPant.sel].forEach(id => { if (!pendOrigen.some(p => p.id === id)) concPant.sel.delete(id); });
+  // Se ordena lo que se dibuja, y concVista guarda ese mismo orden (los botones se refieren a la posición).
+  // Las propuestas se calculan con los pendientes en su orden de origen para que no dependan del orden elegido.
+  const movs = ordenarLista(movsOrigen, 'concMov');
+  const pend = ordenarLista(pendOrigen, 'concTk');
+  concVista = { movs, pend, props: movs.map(m => proponerParejas(m.importe, pendOrigen)) };
 
   if (!(state.caixaRawRows || []).length) {
     elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay extracto del banco cargado. Súbelo con «La Caixa» en la carga de datos.</p></div>';
   } else if (!movs.length) {
     elM.innerHTML = '<div class="empty-state" style="padding:14px"><p>No quedan ingresos del banco por conciliar.</p></div>';
   } else {
-    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
+    elM.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('concMov', 'fecha', 'Fecha') + thOrden('concMov', 'concepto', 'Concepto') + thOrden('concMov', 'importe', 'Importe', 'text-align:right') + '<th style="text-align:left">Propuestas</th></tr></thead><tbody>' +
       movs.map((m, i) => {
         const props = concVista.props[i].map((q, k) => {
           const cli = escHtml(q.tickets[0].cliente);
@@ -2253,7 +2321,7 @@ function renderConciliacion() {
   if (!pend.length) {
     elT.innerHTML = '<div class="empty-state" style="padding:14px"><p>No hay pendientes por transferencia.</p></div>';
   } else {
-    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Importe</th></tr></thead><tbody>' +
+    elT.innerHTML = '<table class="seg-table pend-tabla"><thead><tr><th style="width:34px"></th>' + thOrden('concTk', 'fecha', 'Fecha') + thOrden('concTk', 'cliente', 'Cliente') + thOrden('concTk', 'importe', 'Importe', 'text-align:right') + '</tr></thead><tbody>' +
       pend.map((p, i) => `<tr><td><input type="checkbox" ${concPant.sel.has(p.id) ? 'checked' : ''} onchange="concToggle(${i}, this.checked)"></td>
         <td class="mono">${fechaDMA(p.fecha)}</td><td>${escHtml(p.cliente)}</td><td class="num">${fmt(p.importe)} €</td></tr>`).join('') + '</tbody></table>';
   }
@@ -3358,10 +3426,15 @@ function renderEmpGrid(ds) {
           title="Se calcula con los tickets pendientes de Lucía (más abajo)">`
       : `<input class="emp-input" type="number" value="${emp.efectivo||''}" placeholder="0"
           oninput="empChanged(${idx}, 'efectivo', this.value)" step="0.01">`;
+    // La fila de «Lucía» no es una empleada: es el total de los tickets pendientes de pago del día (Lucía y entidades).
+    // Solo cambia lo que se ve; el nombre guardado sigue siendo el de siempre (Seguimiento, Excel y copias no se tocan).
+    const etiqueta = esLucia(emp.name)
+      ? `<span class="emp-name" title="Total de los tickets pendientes de pago de este día (Lucía y entidades). Se calcula con la lista de más abajo.">Pendiente de pago</span>`
+      : `<span class="emp-name">${emp.name}</span>`;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
-      <span class="emp-name">${emp.name}</span>
+      ${etiqueta}
       ${campo}
       <span class="emp-type">€</span>
       <button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.8rem" 
@@ -4181,6 +4254,7 @@ function calcCajaFisica() {
     ...state.liquidaciones.filter(l => state.month && l.fecha.startsWith(state.month)).map(l => l.fecha)])].sort();
   const filas = [];
   let acumFisico = saldo0, acumActual = saldo0, gastosMes = 0, devolucionesMes = 0;
+  const sumas = {ef: 0, dev: 0, cajero: 0, gastos: 0, tickets: 0};   // suma de cada columna, para la fila de totales de pantalla
   fechas.forEach(ds => {
     const ficha  = conFicha.has(ds);
     const ef     = ficha ? Math.round(getDayEfectivoFisico(ds)*100)/100 : 0;
@@ -4191,14 +4265,18 @@ function calcCajaFisica() {
     if (ficha) acumActual = Math.round((acumActual + getDayEfectivo(ds) - cajero - gastos)*100)/100;
     gastosMes  = Math.round((gastosMes + gastos)*100)/100;
     devolucionesMes = Math.round((devolucionesMes + dev)*100)/100;
-    filas.push({ds, ef, cajero, gastos, dev, ficha, acum: acumFisico});
+    // Los tickets del día solo cuentan en los días con ficha: son los mismos que suma calcTicketsMes() en el puente
+    const tickets = ficha ? getLuciaTotal(ds) : 0;
+    [['ef', ef], ['dev', dev], ['cajero', cajero], ['gastos', gastos], ['tickets', tickets]]
+      .forEach(([k, v]) => { sumas[k] = Math.round((sumas[k] + v)*100)/100; });
+    filas.push({ds, ef, cajero, gastos, dev, tickets, ficha, acum: acumFisico});
   });
   // El neto del Libro entra igual en las dos
   acumFisico = Math.round((acumFisico + lt.net)*100)/100;
   acumActual = Math.round((acumActual + lt.net)*100)/100;
   const tickets = calcTicketsMes();
   const resultado = Math.round((acumActual - tickets.efectivo - tickets.transferencia + gastosMes + devolucionesMes)*100)/100;
-  return {saldo0, filas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
+  return {saldo0, filas, sumas, libro: lt.net, acumFisico, acumActual, tickets, gastosMes, devolucionesMes, resultado,
           sinExplicar: Math.round((acumFisico - resultado)*100)/100};
 }
 
@@ -5044,7 +5122,7 @@ function renderCajasFisica() {
   </tr></thead><tbody>`;
   html += `<tr><td>—</td><td>Inicio</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${fmt(c.saldo0)}</td><td>—</td></tr>`;
   c.filas.forEach(f => {
-    const tk = getLuciaTotal(f.ds);
+    const tk = f.tickets;
     html += `<tr>
       <td>${f.ds.slice(5)}</td>
       <td style="text-align:left;color:var(--muted)">${f.ds}${f.dev ? ' · Lucía devuelve' : ''}${f.ficha ? '' : ' · sin ficha de efectivo'}</td>
@@ -5056,6 +5134,18 @@ function renderCajasFisica() {
       <td style="color:var(--muted)">${tk ? fmt(tk) : '—'}</td>
     </tr>`;
   });
+  // Suma de cada columna de los días: Gastos, Tickets y Devoluciones son justo las líneas del puente de más abajo.
+  // Va antes del Libro porque la fila del Libro pone su neto en la columna de Gastos.
+  const s = c.sumas;
+  html += `<tr style="background:var(--teal-lt);font-weight:700">
+      <td>—</td><td style="text-align:left;color:var(--teal)">Suma del mes (sin el Libro)</td>
+      <td>${fmt(s.ef)}</td>
+      <td>${s.dev ? `<span style="color:var(--teal)">+${fmt(s.dev)}</span>` : '—'}</td>
+      <td>${s.cajero ? `<span style="color:var(--err)">−${fmt(s.cajero)}</span>` : '—'}</td>
+      <td>${s.gastos ? fmt(s.gastos) : '—'}</td>
+      <td>—</td>
+      <td>${s.tickets ? fmt(s.tickets) : '—'}</td>
+    </tr>`;
   if (c.libro !== 0) {
     const gastoStr = c.libro < 0
       ? `<span style="color:var(--err);font-weight:600">−${fmt(Math.abs(c.libro))} €</span>`
@@ -5508,7 +5598,7 @@ function exportExcelCore() {
     ];
     cf.filas.forEach(f => {
       cfRows.push(['', dateSerial(f.ds), f.ds + (f.dev ? ' · Lucía devuelve' : '') + (f.ficha ? '' : ' · sin ficha de efectivo'),
-        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(getLuciaTotal(f.ds))||'']);
+        f.ficha ? n2(f.ef) : '', n2(f.dev)||'', n2(f.cajero)||'', n2(f.gastos)||'', n2(f.acum), n2(f.tickets)||'']);
     });
     const cfLibroRow = cfRows.length;
     cfRows.push(['','','Libro (sí entra en el total)','','','', n2(cf.libro)!==0 ? n2(cf.libro) : '', n2(cf.acumFisico), '']);
