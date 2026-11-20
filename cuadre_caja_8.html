@@ -1859,6 +1859,13 @@ function getTicketsDia(ds) {
   return state.pendientes.filter(p => p.fecha === ds);
 }
 
+// De esas ventas, las que se cobran por transferencia (circuito de las entidades: Hacienda, Colegio Laude…).
+// El cuadre diario las sigue sumando al dinero del día; el Resumen las enseña en su columna «Transferencias»
+// y las quita de «Caja», que así solo lleva el efectivo (el de las empleadas y el de los tickets de Lucía).
+function getTransferenciasDia(ds) {
+  return Math.round(getTicketsDia(ds).filter(t => t.pago === 'transferencia').reduce((s,t) => s+(t.importe||0), 0)*100)/100;
+}
+
 // Cómo paga por defecto un cliente: las entidades (Hacienda, Colegio Laude…) por transferencia, el resto en efectivo.
 function pagoPorDefecto(c) {
   return c && c.entidad ? 'transferencia' : 'efectivo';
@@ -5012,7 +5019,7 @@ function recalcAll() {
 function renderResumen() {
   const tb = document.getElementById('tResumen');
   let html = `<thead><tr>
-    <th>Fecha</th><th>Ticket Farmatic</th><th>Visas</th><th>Efectivo Caja</th>
+    <th>Fecha</th><th>Ticket Farmatic</th><th>Visas</th><th>Transferencias</th><th>Efectivo Caja</th>
     <th>Glovo</th><th>Promociones</th><th>SOE</th>
     <th>Dinero Real</th><th>Total Real (c/SOE)</th><th>Diferencia</th><th>Notas</th>
   </tr></thead><tbody>`;
@@ -5023,12 +5030,13 @@ function renderResumen() {
     const f = state.farmatic[ds]||{};
     const c = state.caixa[ds]||0;
     const d = state.days[ds]||{};
-    const caja  = getDayEfectivo(ds);
+    const transf = getTransferenciasDia(ds);
+    const caja  = Math.round((getDayEfectivo(ds) - transf)*100)/100;   // sin las transferencias, que van a su columna
     const glovo = d.glovo||0;
     const promo = d.promo||0;
     const gastos= d.gastos||0;
     const soe   = f.soe||0;
-    const dineroReal = caja + c + glovo + promo + gastos;
+    const dineroReal = caja + c + transf + glovo + promo + gastos;   // la misma suma de siempre
     const totalReal  = dineroReal + soe;
     const diff = dineroReal - (f.ticket||0);
     const diffCls = Math.abs(diff)<1?'td-ok':(Math.abs(diff)<10?'td-warn':'td-err');
@@ -5037,6 +5045,7 @@ function renderResumen() {
       <td>${ds.slice(5)}</td>
       <td>${fmt(f.ticket||0)}</td>
       <td>${fmt(c)}</td>
+      <td>${fmt(transf)}</td>
       <td>${fmt(caja)}</td>
       <td>${fmt(glovo)}</td>
       <td>${fmt(promo)}</td>
@@ -5424,24 +5433,26 @@ function exportExcelCore() {
     const f  = state.farmatic[ds]||{};
     const c  = state.caixa[ds]||0;
     const d  = state.days[ds]||{};
-    const caja  = n2(getDayEfectivo(ds));
+    const transf = n2(getTransferenciasDia(ds));
+    const caja  = n2(getDayEfectivo(ds) - transf);   // «Caja» = solo efectivo; las transferencias van a su columna
     const glovo = n2(d.glovo||0);
     const promo = n2(d.promo||0);
     const gastos= n2(d.gastos||0);
     const soe   = n2(f.soe||0);
     const ticket= n2(f.ticket||0);
-    const dineroReal = n2(caja + c + glovo + promo + gastos);
+    const dineroReal = n2(caja + c + transf + glovo + promo + gastos);   // la misma suma de siempre
     const totalReal  = n2(dineroReal + soe);
     const diff       = n2(dineroReal - ticket);
         const rSerial = dateSerial(ds);
     const notasExp = state.days[ds]?.notas?.trim() || '';
-    rRows.push(['', rSerial, ticket, n2(c), 0, glovo, promo, caja, soe, dineroReal, totalReal, totalReal, diff, notasExp]);
+    rRows.push(['', rSerial, ticket, n2(c), transf, glovo, promo, caja, soe, dineroReal, totalReal, totalReal, diff, notasExp]);
   });
   // Fila totales al final
+  const totTransf = n2(sortedDays.reduce((s,ds)=>s+getTransferenciasDia(ds),0));
   rRows.push(['', '', n2(sortedDays.reduce((s,ds)=>s+(state.farmatic[ds]?.ticket||0),0)),
-    n2(sortedDays.reduce((s,ds)=>s+(state.caixa[ds]||0),0)), 0,
+    n2(sortedDays.reduce((s,ds)=>s+(state.caixa[ds]||0),0)), totTransf,
     n2(sortedDays.reduce((s,ds)=>s+(state.days[ds]?.glovo||0),0)), 0,
-    n2(sortedDays.reduce((s,ds)=>s+getDayEfectivo(ds),0)), '', '', '', '', '', '']);
+    n2(sortedDays.reduce((s,ds)=>s+getDayEfectivo(ds),0) - totTransf), '', '', '', '', '', '']);
 
   const wsResumen = XLSX.utils.aoa_to_sheet(rRows);
   // Nombre del mes — bold teal
