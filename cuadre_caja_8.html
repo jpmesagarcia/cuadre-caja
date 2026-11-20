@@ -3785,6 +3785,15 @@ function renderStats() {
   });
   const top3Clients = Object.entries(clientTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
+  // Pendiente de cobro a día de hoy, sin mirar el mes: es lo que se debe, no lo que se vendió este mes.
+  const pendRes = getResumenPendientes();
+  const kpiPendiente = (titulo, c, vacio) =>
+    '<div class="kpi-card">'
+      +'<div class="kpi-label">'+titulo+'</div>'
+      +'<div class="kpi-value'+(c.n>0?'':' teal')+'">'+fmt(c.total)+' €</div>'
+      +'<div class="kpi-sub">'+(c.n>0 ? c.n+' ticket'+(c.n===1?'':'s')+' · el más antiguo, del '+fechaDMA(c.desde) : vacio)+'</div>'
+    +'</div>';
+
   // ── Arqueo diff ───────────────────────────────────────────────────────
   let arqueoDiffStats = null;
   const arqueoMes = getArqueoMes(state.month);
@@ -3890,6 +3899,9 @@ function renderStats() {
           +'</div>'
         : '')
     +'</div>'
+    // Lo que se debe a día de hoy (de cualquier mes): en efectivo (vía Lucía) y por transferencia (entidades)
+    +kpiPendiente('Pendiente de Lucía (efectivo)', pendRes.efectivo, 'Nada pendiente de Lucía')
+    +kpiPendiente('Pendiente por transferencia', pendRes.transferencia, 'Nada pendiente por transferencia')
     // Arqueo KPI
     +(arqueoDiffStats !== null
       ? '<div class="kpi-card'+(arqueoDiffStats===0?' kpi-accent':' kpi-warn')+'">'
