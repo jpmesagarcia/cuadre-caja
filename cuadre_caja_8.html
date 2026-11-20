@@ -1859,6 +1859,47 @@ function getTicketsDia(ds) {
   return state.pendientes.filter(p => p.fecha === ds);
 }
 
+// De esas ventas, las que se cobran por transferencia (circuito de las entidades: Hacienda, Colegio Laude…).
+// El cuadre diario las sigue sumando al dinero del día; el Resumen las enseña en su columna «Transferencias»
+// y las quita de «Caja», que así solo lleva el efectivo (el de las empleadas y el de los tickets de Lucía).
+function getTransferenciasDia(ds) {
+  return Math.round(getTicketsDia(ds).filter(t => t.pago === 'transferencia').reduce((s,t) => s+(t.importe||0), 0)*100)/100;
+}
+
+// ─── Listados del libro de pendientes (Excel y Estadísticas) ───────────────
+const textoPago   = pago   => pago === 'transferencia' ? 'Transferencia' : 'Efectivo';
+const textoEstado = estado => estado === 'cobrado' ? 'Cobrado' : 'Pendiente';
+
+// Lo que se debe a día de hoy, de cualquier mes, por circuito (la forma de pago del apunte decide el circuito).
+function getResumenPendientes() {
+  const r = {efectivo: {n: 0, total: 0, desde: null}, transferencia: {n: 0, total: 0, desde: null}};
+  state.pendientes.filter(p => p.estado !== 'cobrado').forEach(p => {
+    const c = r[p.pago === 'transferencia' ? 'transferencia' : 'efectivo'];
+    c.n++;
+    c.total = Math.round((c.total + (p.importe||0))*100)/100;
+    if (!c.desde || p.fecha < c.desde) c.desde = p.fecha;
+  });
+  return r;
+}
+
+// Lo que lleva la hoja «Pendientes»: todo lo que sigue sin cobrar (de cualquier mes) y, del mes que se exporta,
+// lo vendido y lo cobrado. Por fecha de venta y, dentro, por cliente.
+function getPendientesParaListado(mes) {
+  return state.pendientes
+    .filter(p => p.estado !== 'cobrado' || p.fecha.startsWith(mes) || (p.fechaCobro && p.fechaCobro.startsWith(mes)))
+    .sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.cliente.localeCompare(b.cliente, 'es'));
+}
+
+// Cómo se cobró un apunte: con una liquidación de Lucía o con un ingreso del banco (ref = id de uno u otro).
+function describirCobro(p) {
+  if (p.estado !== 'cobrado') return '';
+  const liq = (state.liquidaciones || []).find(l => l.id === p.ref);
+  if (liq) return 'Liquidación con Lucía del ' + fechaDMA(liq.fecha);
+  const con = (state.conciliaciones || []).find(c => c.id === p.ref);
+  if (con) return 'Ingreso del banco del ' + fechaDMA(con.fecha) + (con.concepto ? ': ' + con.concepto : '');
+  return p.ref ? 'Ref. ' + p.ref : '';
+}
+
 // Cómo paga por defecto un cliente: las entidades (Hacienda, Colegio Laude…) por transferencia, el resto en efectivo.
 function pagoPorDefecto(c) {
   return c && c.entidad ? 'transferencia' : 'efectivo';
@@ -3744,6 +3785,15 @@ function renderStats() {
   });
   const top3Clients = Object.entries(clientTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
+  // Pendiente de cobro a día de hoy, sin mirar el mes: es lo que se debe, no lo que se vendió este mes.
+  const pendRes = getResumenPendientes();
+  const kpiPendiente = (titulo, c, vacio) =>
+    '<div class="kpi-card">'
+      +'<div class="kpi-label">'+titulo+'</div>'
+      +'<div class="kpi-value'+(c.n>0?'':' teal')+'">'+fmt(c.total)+' €</div>'
+      +'<div class="kpi-sub">'+(c.n>0 ? c.n+' ticket'+(c.n===1?'':'s')+' · el más antiguo, del '+fechaDMA(c.desde) : vacio)+'</div>'
+    +'</div>';
+
   // ── Arqueo diff ───────────────────────────────────────────────────────
   let arqueoDiffStats = null;
   const arqueoMes = getArqueoMes(state.month);
@@ -3849,6 +3899,9 @@ function renderStats() {
           +'</div>'
         : '')
     +'</div>'
+    // Lo que se debe a día de hoy (de cualquier mes): en efectivo (vía Lucía) y por transferencia (entidades)
+    +kpiPendiente('Pendiente de Lucía (efectivo)', pendRes.efectivo, 'Nada pendiente de Lucía')
+    +kpiPendiente('Pendiente por transferencia', pendRes.transferencia, 'Nada pendiente por transferencia')
     // Arqueo KPI
     +(arqueoDiffStats !== null
       ? '<div class="kpi-card'+(arqueoDiffStats===0?' kpi-accent':' kpi-warn')+'">'
@@ -5012,7 +5065,7 @@ function recalcAll() {
 function renderResumen() {
   const tb = document.getElementById('tResumen');
   let html = `<thead><tr>
-    <th>Fecha</th><th>Ticket Farmatic</th><th>Visas</th><th>Efectivo Caja</th>
+    <th>Fecha</th><th>Ticket Farmatic</th><th>Visas</th><th>Transferencias</th><th>Efectivo Caja</th>
     <th>Glovo</th><th>Promociones</th><th>SOE</th>
     <th>Dinero Real</th><th>Total Real (c/SOE)</th><th>Diferencia</th><th>Notas</th>
   </tr></thead><tbody>`;
@@ -5023,12 +5076,13 @@ function renderResumen() {
     const f = state.farmatic[ds]||{};
     const c = state.caixa[ds]||0;
     const d = state.days[ds]||{};
-    const caja  = getDayEfectivo(ds);
+    const transf = getTransferenciasDia(ds);
+    const caja  = Math.round((getDayEfectivo(ds) - transf)*100)/100;   // sin las transferencias, que van a su columna
     const glovo = d.glovo||0;
     const promo = d.promo||0;
     const gastos= d.gastos||0;
     const soe   = f.soe||0;
-    const dineroReal = caja + c + glovo + promo + gastos;
+    const dineroReal = caja + c + transf + glovo + promo + gastos;   // la misma suma de siempre
     const totalReal  = dineroReal + soe;
     const diff = dineroReal - (f.ticket||0);
     const diffCls = Math.abs(diff)<1?'td-ok':(Math.abs(diff)<10?'td-warn':'td-err');
@@ -5037,6 +5091,7 @@ function renderResumen() {
       <td>${ds.slice(5)}</td>
       <td>${fmt(f.ticket||0)}</td>
       <td>${fmt(c)}</td>
+      <td>${fmt(transf)}</td>
       <td>${fmt(caja)}</td>
       <td>${fmt(glovo)}</td>
       <td>${fmt(promo)}</td>
@@ -5317,6 +5372,12 @@ function exportExcelCore() {
     return ws;
   }
 
+  // Estilo de una celda de listado (texto o fecha): fuente, fondo de la fila y borde fino
+  const BORDE_FINO = {top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
+                      left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}};
+  const estiloTxt = (bg, horizontal) => ({font:{name:'Arial',sz:10}, fill:{patternType:'solid',fgColor:{rgb:bg}},
+                      alignment:{horizontal, vertical:'center'}, border:BORDE_FINO});
+
   // Apply teal header style to a row range
   function headerRow(ws, r, fromCol, toCol) {
     for (let c=fromCol; c<=toCol; c++) {
@@ -5424,24 +5485,26 @@ function exportExcelCore() {
     const f  = state.farmatic[ds]||{};
     const c  = state.caixa[ds]||0;
     const d  = state.days[ds]||{};
-    const caja  = n2(getDayEfectivo(ds));
+    const transf = n2(getTransferenciasDia(ds));
+    const caja  = n2(getDayEfectivo(ds) - transf);   // «Caja» = solo efectivo; las transferencias van a su columna
     const glovo = n2(d.glovo||0);
     const promo = n2(d.promo||0);
     const gastos= n2(d.gastos||0);
     const soe   = n2(f.soe||0);
     const ticket= n2(f.ticket||0);
-    const dineroReal = n2(caja + c + glovo + promo + gastos);
+    const dineroReal = n2(caja + c + transf + glovo + promo + gastos);   // la misma suma de siempre
     const totalReal  = n2(dineroReal + soe);
     const diff       = n2(dineroReal - ticket);
         const rSerial = dateSerial(ds);
     const notasExp = state.days[ds]?.notas?.trim() || '';
-    rRows.push(['', rSerial, ticket, n2(c), 0, glovo, promo, caja, soe, dineroReal, totalReal, totalReal, diff, notasExp]);
+    rRows.push(['', rSerial, ticket, n2(c), transf, glovo, promo, caja, soe, dineroReal, totalReal, totalReal, diff, notasExp]);
   });
   // Fila totales al final
+  const totTransf = n2(sortedDays.reduce((s,ds)=>s+getTransferenciasDia(ds),0));
   rRows.push(['', '', n2(sortedDays.reduce((s,ds)=>s+(state.farmatic[ds]?.ticket||0),0)),
-    n2(sortedDays.reduce((s,ds)=>s+(state.caixa[ds]||0),0)), 0,
+    n2(sortedDays.reduce((s,ds)=>s+(state.caixa[ds]||0),0)), totTransf,
     n2(sortedDays.reduce((s,ds)=>s+(state.days[ds]?.glovo||0),0)), 0,
-    n2(sortedDays.reduce((s,ds)=>s+getDayEfectivo(ds),0)), '', '', '', '', '', '']);
+    n2(sortedDays.reduce((s,ds)=>s+getDayEfectivo(ds),0) - totTransf), '', '', '', '', '', '']);
 
   const wsResumen = XLSX.utils.aoa_to_sheet(rRows);
   // Nombre del mes — bold teal
@@ -5682,7 +5745,9 @@ function exportExcelCore() {
     const empGlovo   = d.employees.filter(e => esLucia(e.name));
     const empNormal  = d.employees.filter(e => !esLucia(e.name));
     const totalEfNormal = n2(empNormal.reduce((s,e)=>s+(e.efectivo||0),0));
-    const totalGlovo    = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
+    // Lo que se les debe a la farmacia ese día (tickets de Lucía y de las entidades): va en su columna «Pendiente de pago»,
+    // no en «Glovo» (E-24). Es la parte de «Dinero» que no han entregado las empleadas.
+    const totalPend     = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
     const totalEfAll    = n2(caja);
 
     // Helper: apply style to a cell
@@ -5755,7 +5820,7 @@ function exportExcelCore() {
     sc(wsDay, 17, 7, 'Total',     {font:{name:'Arial',sz:11,bold:true},alignment:{horizontal:'center'}});
 
     // Row 20 (idx 19): Employee header row
-    ['Total','Efectivo','Gastos','Glovo','Ministerio'].forEach((h,i) => {
+    ['Total','Efectivo','Gastos','Glovo','Ministerio','Pendiente de pago'].forEach((h,i) => {
       sc(wsDay, 19, 5+i, h, {
         font:{name:'Arial',sz:11,bold:true,color:{rgb:'FFFFFFFF'}},
         fill:{patternType:'solid',fgColor:{rgb:TEAL}},
@@ -5773,13 +5838,14 @@ function exportExcelCore() {
       sc(wsDay, r, 5, ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 6, isGl?'':ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 7, '',  {fill:{patternType:'solid',fgColor:{rgb:bg}}});
-      sc(wsDay, r, 8, isGl?ef:'', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 8, '', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 9, 0,  {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 10, isGl?ef:'', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
     });
 
     // Totals row
     const totR = 20 + d.employees.length;
-    [totalEfAll, totalEfNormal, n2(gastos), totalGlovo, 0].forEach((v,i) => {
+    [totalEfAll, totalEfNormal, n2(gastos), glovo, 0, totalPend].forEach((v,i) => {
       sc(wsDay, totR, 5+i, v, {
         font:{name:'Arial',sz:11,bold:true,color:{rgb:'FF086C74'}},
         fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},
@@ -5799,7 +5865,7 @@ function exportExcelCore() {
     // Column widths & sheet range
     wsDay['!cols'] = [
       {wch:3},{wch:3},{wch:3},{wch:10},{wch:10},
-      {wch:12},{wch:10},{wch:11},{wch:11},{wch:11},{wch:15}
+      {wch:12},{wch:10},{wch:11},{wch:11},{wch:11},{wch:19}
     ];
     const lastRow = 20 + d.employees.length;
     wsDay['!ref'] = `A1:K${lastRow+1}`;
@@ -5814,13 +5880,13 @@ function exportExcelCore() {
     ['','','',''],
     ['','','',monthName],
     ['','','',''],
-    ['','Fecha','Cliente','Importe'],
+    ['','Fecha','Cliente','Importe','Pago','Estado','Cobrado el'],
   ];
   let luciaTotal = 0;
   sortedAsc.forEach(ds => {
     getTicketsDia(ds).forEach(t => {
       const tSerial = dateSerial(ds);
-      ltRows.push(['', tSerial, t.cliente, n2(t.importe)]);
+      ltRows.push(['', tSerial, t.cliente, n2(t.importe), textoPago(t.pago), textoEstado(t.estado), t.fechaCobro ? dateSerial(t.fechaCobro) : '']);
       luciaTotal = n2(luciaTotal + t.importe);
     });
   });
@@ -5830,7 +5896,7 @@ function exportExcelCore() {
     const cell = wsLucia[XLSX.utils.encode_cell({r, c:1})];
     if (cell && typeof cell.v === 'number' && cell.v > 1000) { cell.t='n'; cell.z='DD/MM/YYYY'; }
   }
-  headerRow(wsLucia, 3, 1, 3);
+  headerRow(wsLucia, 3, 1, 6);
   for (let r=4; r<ltRows.length-1; r++) {
     const bg = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
     const dCell = wsLucia[XLSX.utils.encode_cell({r, c:1})];
@@ -5847,14 +5913,57 @@ function exportExcelCore() {
       border:{top:{style:'thin',color:{rgb:'FFB0B0B0'}},bottom:{style:'thin',color:{rgb:'FFB0B0B0'}},
               left:{style:'thin',color:{rgb:'FFB0B0B0'}},right:{style:'thin',color:{rgb:'FFB0B0B0'}}}};
     euroRow(wsLucia, r, 3, 3, bg);
+    // Pago y estado (texto) y fecha de cobro (fecha), con el mismo estilo que el resto de la fila
+    [4, 5].forEach(c => { const x = wsLucia[XLSX.utils.encode_cell({r, c})]; if (x) x.s = estiloTxt(bg, 'left'); });
+    const cobCell = wsLucia[XLSX.utils.encode_cell({r, c:6})];
+    if (cobCell) { if (typeof cobCell.v==='number') { cobCell.t='n'; cobCell.z=FMT_DATE; } cobCell.s = estiloTxt(bg, 'center'); }
   }
   // Total row
   const ltotR = ltRows.length-1;
   const ltotCell = wsLucia[XLSX.utils.encode_cell({r:ltotR, c:2})];
   if (ltotCell) ltotCell.s={font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:'right'}};
   euroRow(wsLucia, ltotR, 3, 3, GOLD_LT);
-  fmtSheet(wsLucia, [3,12,24,12]);
+  fmtSheet(wsLucia, [3,12,24,12,14,11,13]);
   XLSX.utils.book_append_sheet(wb, wsLucia, 'Tickets Lucía');
+
+  // ── 6b. HOJA PENDIENTES ──────────────────────────────────────────────────
+  // El libro de pendientes tal como está hoy, sea del mes que sea: todo lo que sigue sin cobrar, más lo vendido
+  // o cobrado en el mes que se exporta (para ver cómo se fue cobrando). Debajo, lo que se debe en cada circuito.
+  const pendRows = [
+    ['','','',''],
+    ['','','',monthName],
+    ['','','',''],
+    ['','Fecha','Cliente','Importe','Origen','Pago','Estado','Cobrado el','Cobro','Nota'],
+  ];
+  const lista6 = getPendientesParaListado(state.month);
+  lista6.forEach(p => {
+    pendRows.push(['', dateSerial(p.fecha), p.cliente, n2(p.importe), p.origen === 'entidad' ? 'Entidad' : 'Lucía',
+      textoPago(p.pago), textoEstado(p.estado), p.fechaCobro ? dateSerial(p.fechaCobro) : '', describirCobro(p), p.nota || '']);
+  });
+  const rp = getResumenPendientes();
+  pendRows.push(['','','','','','','','','','']);
+  pendRows.push(['','','Pendiente en efectivo (vía Lucía)', n2(rp.efectivo.total)]);
+  pendRows.push(['','','Pendiente por transferencia', n2(rp.transferencia.total)]);
+  pendRows.push(['','','Total pendiente', n2(rp.efectivo.total + rp.transferencia.total)]);
+  const wsPend = XLSX.utils.aoa_to_sheet(pendRows);
+  headerRow(wsPend, 3, 1, 9);
+  for (let r=4; r<4+lista6.length; r++) {
+    const bg = r%2===0 ? 'FFF2F8F8' : 'FFFFFFFF';
+    [1, 7].forEach(c => {
+      const x = wsPend[XLSX.utils.encode_cell({r, c})];
+      if (x) { if (typeof x.v==='number') { x.t='n'; x.z=FMT_DATE; } x.s = estiloTxt(bg, 'center'); }
+    });
+    [2, 4, 5, 6, 8, 9].forEach(c => { const x = wsPend[XLSX.utils.encode_cell({r, c})]; if (x) x.s = estiloTxt(bg, 'left'); });
+    euroRow(wsPend, r, 3, 3, bg);
+  }
+  // Las tres líneas de abajo: etiqueta a la derecha y suma en dorado
+  for (let r=pendRows.length-3; r<pendRows.length; r++) {
+    const x = wsPend[XLSX.utils.encode_cell({r, c:2})];
+    if (x) x.s = {font:{bold:true,name:'Arial',sz:10},fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},alignment:{horizontal:'right'}};
+    euroRow(wsPend, r, 3, 3, GOLD_LT);
+  }
+  fmtSheet(wsPend, [3,12,26,12,10,14,11,13,38,30]);
+  XLSX.utils.book_append_sheet(wb, wsPend, 'Pendientes');
 
   // ── 7. HOJA LIBRO ────────────────────────────────────────────────────────
   const libroExportRows = [
