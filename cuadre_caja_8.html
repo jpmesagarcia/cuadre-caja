@@ -5733,7 +5733,9 @@ function exportExcelCore() {
     const empGlovo   = d.employees.filter(e => esLucia(e.name));
     const empNormal  = d.employees.filter(e => !esLucia(e.name));
     const totalEfNormal = n2(empNormal.reduce((s,e)=>s+(e.efectivo||0),0));
-    const totalGlovo    = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
+    // Lo que se les debe a la farmacia ese día (tickets de Lucía y de las entidades): va en su columna «Pendiente de pago»,
+    // no en «Glovo» (E-24). Es la parte de «Dinero» que no han entregado las empleadas.
+    const totalPend     = n2(empGlovo.reduce((s,e)=>s+(getLuciaTotal(ds)||0),0));
     const totalEfAll    = n2(caja);
 
     // Helper: apply style to a cell
@@ -5806,7 +5808,7 @@ function exportExcelCore() {
     sc(wsDay, 17, 7, 'Total',     {font:{name:'Arial',sz:11,bold:true},alignment:{horizontal:'center'}});
 
     // Row 20 (idx 19): Employee header row
-    ['Total','Efectivo','Gastos','Glovo','Ministerio'].forEach((h,i) => {
+    ['Total','Efectivo','Gastos','Glovo','Ministerio','Pendiente de pago'].forEach((h,i) => {
       sc(wsDay, 19, 5+i, h, {
         font:{name:'Arial',sz:11,bold:true,color:{rgb:'FFFFFFFF'}},
         fill:{patternType:'solid',fgColor:{rgb:TEAL}},
@@ -5824,13 +5826,14 @@ function exportExcelCore() {
       sc(wsDay, r, 5, ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 6, isGl?'':ef, {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 7, '',  {fill:{patternType:'solid',fgColor:{rgb:bg}}});
-      sc(wsDay, r, 8, isGl?ef:'', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 8, '', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
       sc(wsDay, r, 9, 0,  {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
+      sc(wsDay, r, 10, isGl?ef:'', {...EMP_NUM, fill:{patternType:'solid',fgColor:{rgb:bg}}});
     });
 
     // Totals row
     const totR = 20 + d.employees.length;
-    [totalEfAll, totalEfNormal, n2(gastos), totalGlovo, 0].forEach((v,i) => {
+    [totalEfAll, totalEfNormal, n2(gastos), glovo, 0, totalPend].forEach((v,i) => {
       sc(wsDay, totR, 5+i, v, {
         font:{name:'Arial',sz:11,bold:true,color:{rgb:'FF086C74'}},
         fill:{patternType:'solid',fgColor:{rgb:GOLD_LT}},
@@ -5850,7 +5853,7 @@ function exportExcelCore() {
     // Column widths & sheet range
     wsDay['!cols'] = [
       {wch:3},{wch:3},{wch:3},{wch:10},{wch:10},
-      {wch:12},{wch:10},{wch:11},{wch:11},{wch:11},{wch:15}
+      {wch:12},{wch:10},{wch:11},{wch:11},{wch:11},{wch:19}
     ];
     const lastRow = 20 + d.employees.length;
     wsDay['!ref'] = `A1:K${lastRow+1}`;
