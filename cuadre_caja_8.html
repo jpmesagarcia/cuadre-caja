@@ -1651,7 +1651,7 @@
 const STORAGE_KEY = 'cuadre_caja_v3';
 const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
 const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
-const BACKUP_SCHEMA   = 4;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía; 4: conciliaciones de transferencias)
+const BACKUP_SCHEMA   = 5;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía; 4: conciliaciones de transferencias; 5: lo aplicado por la carga del Forms)
 const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
 let guardadoFallido = false;        // el último guardado falló
@@ -1683,7 +1683,8 @@ function buildPersistedState() {
     liquidaciones: state.liquidaciones,
     conciliaciones: state.conciliaciones,
     clientes: state.clientes,
-    formsData: state.formsData
+    formsData: state.formsData,
+    formsAplicado: state.formsAplicado
   };
 }
 
@@ -2513,6 +2514,7 @@ function loadState() {
     state.conciliaciones  = saved.conciliaciones  || [];   // ni los del esquema 3
     state.clientes        = saved.clientes        || clientesIniciales();
   state.formsData       = saved.formsData       || {};
+    state.formsAplicado   = saved.formsAplicado   || {};   // ni los del esquema 4
     return Object.keys(state.farmatic).length > 0;
   } catch(e) {
     console.warn('No se pudo restaurar:', e);
@@ -2640,7 +2642,7 @@ function validarCopiaCompleta(o) {
     return 'La copia es de una versión más nueva de la app (esquema ' + o.schemaVersion + '; esta app entiende hasta el ' + BACKUP_SCHEMA + '). Actualiza la app antes de restaurarla.';
   const d = o.data;
   if (!esObj(d)) return 'La copia no contiene datos.';
-  for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'arqueoPorMes', 'esperadoPorMes'])
+  for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'formsAplicado', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'conciliaciones', 'clientes'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
@@ -2811,7 +2813,7 @@ function estadoPersistidoVacio() {
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
     arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {},
-    pendientes: [], liquidaciones: [], conciliaciones: [], clientes: clientesIniciales(), formsData: {}
+    pendientes: [], liquidaciones: [], conciliaciones: [], clientes: clientesIniciales(), formsData: {}, formsAplicado: {}
   };
 }
 
@@ -2862,7 +2864,8 @@ const state = {
   liquidaciones: [],  // devoluciones de Lucía: [{id, fecha, importe, ticketIds, nota}] (ver «Liquidación con Lucía»)
   conciliaciones: [], // transferencias conciliadas con el banco: [{id, movId, fecha, importe, concepto, ticketIds, nota}] (ver «Conciliación de transferencias»)
   clientes: clientesIniciales(),   // [{nombre, entidad}]: clientes de los pendientes; entidad = paga por transferencia (E-29)
-  formsData: {},
+  formsData: {},       // ds -> {empleada: efectivo que apuntó en el Forms}: lo último leído, para Seguimiento
+  formsAplicado: {},   // ds -> lo que la carga del Forms ha puesto en cada día (ver «Forms: mezcla por empleada»)
   defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia'],
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
@@ -3121,8 +3124,172 @@ function parseNumOrNull(v) {
   return isNaN(n) ? null : n;
 }
 
+// ─── Forms: mezcla por empleada sin duplicar (E-08) y gastos que son tickets (E-48) ────────────────────
+// state.formsAplicado[ds] guarda lo que la carga del Forms ha puesto en ese día, para poder volver a cargar el
+// Forms (con lo que las empleadas hayan apuntado después) sin duplicar nada y sin pisar lo que se haya tecleado
+// a mano:
+//   { efectivo: {empleada: importe},   lo que se puso como efectivo de cada empleada
+//     glovo, gastos,                   lo que se sumó a los totales del día
+//     gastosEmp: {empleada: {items: [{v, nums, revisado, esTicket}]}} }   cada gasto del Forms, fila a fila (E-48)
+// Los días cargados con la versión anterior no lo tienen: de ellos solo se sabe lo que se leyó la vez anterior
+// (state.formsData), que sirve para el efectivo de cada empleada; su glovo y sus gastos se dan por sumados.
+
+// Los números que hay en un texto del Forms, para reconocer a qué ticket se parece un gasto: «68’94» → 68,94
+// (la app lee ese texto como 68, E-41, que es otra cosa y no se toca aquí).
+function numerosDeTexto(v) {
+  if (v === null || v === undefined || v === '') return [];
+  if (typeof v === 'number') return v > 0 ? [Math.round(v*100)/100] : [];
+  const t = v.toString().replace(/[’‘´`']/g, '.').replace(/,/g, '.');
+  return (t.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(x => x > 0).map(x => Math.round(x*100)/100);
+}
+
+// ¿Alguno de esos números coincide con un ticket del día o con la suma de todos sus tickets?
+function coincideConTickets(ds, nums) {
+  const tks = getTicketsDia(ds);
+  if (!tks.length) return null;
+  const suma = Math.round(tks.reduce((s, t) => s + (t.importe||0), 0)*100)/100;
+  for (const x of nums) {
+    const uno = tks.find(t => Math.abs((t.importe||0) - x) < 0.005);
+    if (uno) return {x, texto: 'el ticket de ' + uno.cliente + ' de ' + fmt(uno.importe) + ' €'};
+    if (tks.length > 1 && Math.abs(suma - x) < 0.005) return {x, texto: 'la suma de los ' + tks.length + ' tickets del día (' + fmt(suma) + ' €)'};
+  }
+  return null;
+}
+
+// Mezcla en un día lo que dice el Forms. empData: {nombre: {efectivo, glovo, gastos, gastosItems}}.
+// Devuelve {primera, omitido, cambios, conflictos}.
+//  - Primera carga de un día: si ya tiene efectivo tecleado no se toca (omitido); si no, se carga todo.
+//  - Recarga: cada empleada se actualiza solo si su efectivo sigue siendo el que puso la carga anterior; si se
+//    cambió a mano, se respeta (conflicto). Una empleada que aparece después, o que estaba a 0, entra.
+//  - Glovo y gastos del día: se suma solo la diferencia con lo que la carga anterior ya había sumado.
+function aplicarFormsDia(ds, empData) {
+  const r2c = v => Math.round(v*100)/100;
+  if (!state.days[ds]) {
+    state.days[ds] = { employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})), glovo:0, promo:0, gastos:0, notas:'' };
+  }
+  const day = state.days[ds];
+  const prev = Object.assign({}, state.formsData[ds] || {});   // lo leído en la carga anterior (o en la versión anterior de la app)
+  const hayPrevio = Object.keys(prev).length > 0;
+
+  // Lo que dice el Forms ahora, bajo el nombre de la empleada de la app si coincide (es el que usa Seguimiento)
+  const ahora = {};
+  Object.entries(empData).forEach(([nombre, v]) => {
+    const e = buscarEmpleada(day.employees, nombre);
+    const k = e ? e.name : nombre;
+    if (!ahora[k]) ahora[k] = {efectivo:0, glovo:0, items:[]};
+    ahora[k].efectivo += v.efectivo; ahora[k].glovo += v.glovo;
+    ahora[k].items.push(...(v.gastosItems || []));
+  });
+  // Se guarda siempre lo que viene del Forms, para compararlo después (Seguimiento)
+  if (!state.formsData[ds]) state.formsData[ds] = {};
+  Object.entries(ahora).forEach(([k, v]) => { state.formsData[ds][k] = r2c(v.efectivo); });
+
+  const yaHayEfectivo = day.employees.some(e => !esLucia(e.name) && (e.efectivo||0) > 0);
+  const vacio = !yaHayEfectivo && !(day.glovo||0) && !(day.gastos||0);
+  let ap = vacio ? undefined : state.formsAplicado[ds];   // un día vacío se carga como la primera vez
+  const legacy = !ap && hayPrevio && !vacio;               // cargado con la versión anterior de la app
+  const primera = !ap && !legacy;
+  if (primera && yaHayEfectivo) return {primera:false, omitido:true, cambios:0, conflictos:0};   // datos a mano: no se pisan
+  if (!ap) ap = state.formsAplicado[ds] = {efectivo:{}, glovo:0, gastos:0, gastosEmp:{}};
+
+  let cambios = 0, conflictos = 0;
+  const nombres = new Set([...Object.keys(ahora), ...Object.keys(ap.efectivo), ...(legacy ? Object.keys(prev) : [])]);
+  nombres.forEach(k => {
+    const F = r2c((ahora[k] || {efectivo:0}).efectivo);
+    const emp = buscarEmpleada(day.employees, k);
+    if (esLucia(k)) {   // su efectivo son sus tickets (E-34): el del Forms no cuenta
+      if (!emp && ahora[k]) day.employees.push({name:k, efectivo:0, glovo:0, ministerio:0});
+      return;
+    }
+    if (!emp) {
+      if (!ahora[k]) return;
+      day.employees.push({name:k, efectivo:F, glovo:0, ministerio:0}); ap.efectivo[k] = F; cambios++;
+      return;
+    }
+    const cur = emp.efectivo || 0;
+    const base = ap.efectivo[k] !== undefined ? ap.efectivo[k] : (legacy ? prev[k] : undefined);   // lo que puso la carga anterior
+    if (primera) { emp.efectivo = F; ap.efectivo[k] = F; return; }
+    if (base === undefined ? cur === 0 : Math.abs(cur - base) < 0.005) {
+      if (Math.abs(F - cur) >= 0.005) { emp.efectivo = F; cambios++; }
+      ap.efectivo[k] = F;
+    } else if (Math.abs(cur - F) >= 0.005) {
+      // tecleado a mano y distinto del Forms: se respeta; solo se avisa si el Forms ha cambiado desde la última vez
+      if (prev[k] === undefined || Math.abs(F - prev[k]) >= 0.005) conflictos++;
+    } else {
+      ap.efectivo[k] = F;
+    }
+  });
+
+  // Glovo y gastos del día (suma de todas las filas del día, también de empleadas que no están en la lista del día)
+  const Fg = r2c(Object.values(ahora).reduce((s, v) => s + v.glovo, 0));
+  const gEmp = {};
+  let Gf = 0;
+  Object.entries(ahora).forEach(([k, v]) => {
+    if (!v.items.length) return;
+    // lo que ya se decidió de cada gasto (ticket o gasto) se conserva al volver a cargar el mismo Forms
+    const viejos = ((ap.gastosEmp || {})[k] || {}).items || [], usados = new Set();
+    const items = v.items.map(it => {
+      const i = viejos.findIndex((o, n) => !usados.has(n) && o.revisado && Math.abs(o.v - it.v) < 0.005 && o.nums.join() === it.nums.join());
+      if (i >= 0) { usados.add(i); return {v:it.v, nums:it.nums, revisado:true, esTicket:viejos[i].esTicket}; }
+      return {v:it.v, nums:it.nums, revisado:false, esTicket:false};
+    });
+    gEmp[k] = {items};
+    items.forEach(it => { if (!(it.revisado && it.esTicket)) Gf += it.v; });   // un gasto que se ha dicho que es un ticket no suma (E-48)
+  });
+  Gf = r2c(Gf);
+  const conMas = (x, d) => Math.max(0, r2c((x||0) + d));
+  if (primera) {
+    day.glovo = conMas(day.glovo, Fg); day.gastos = conMas(day.gastos, Gf);
+  } else if (!legacy) {
+    const dg = r2c(Fg - (ap.glovo||0)), dgs = r2c(Gf - (ap.gastos||0));
+    if (dg !== 0 || dgs !== 0) { day.glovo = conMas(day.glovo, dg); day.gastos = conMas(day.gastos, dgs); cambios++; }
+  }
+  ap.glovo = Fg; ap.gastos = Gf; ap.gastosEmp = gEmp;
+  return {primera, omitido:false, cambios, conflictos};
+}
+
+// E-48: en la columna «Gastos» del Forms se apuntan a veces tickets pendientes de pago, y se importan como gasto.
+// Busca los gastos del Forms que coinciden con un ticket del mismo día (o con la suma de sus tickets) y pregunta
+// una vez: si son tickets, se quitan de los gastos del día; si son gastos, se dejan y no se vuelve a preguntar.
+// Se llama al cargar el Forms y al cargar tickets, porque pueden llegar en cualquier orden.
+// Devuelve cuántos gastos se han quitado.
+function revisarGastosForms() {
+  const lista = [];
+  Object.keys(state.formsAplicado).sort().forEach(ds => {
+    const ap = state.formsAplicado[ds];
+    Object.entries(ap.gastosEmp || {}).forEach(([emp, g]) => {
+      (g.items || []).forEach(it => {
+        if (it.revisado || !(it.v > 0)) return;
+        const c = coincideConTickets(ds, it.nums || []);
+        if (c) lista.push({ds, emp, it, ap, c});
+      });
+    });
+  });
+  if (!lista.length) return 0;
+  const lineas = lista.slice(0, 12).map(({ds, emp, it, c}) =>
+    '• ' + fechaDMA(ds) + ' · ' + emp + ': apuntó ' + fmt(c.x) + ' € en Gastos' +
+    (Math.abs(c.x - it.v) > 0.005 ? ' (la app lo ha leído como ' + fmt(it.v) + ' €)' : '') + ' y coincide con ' + c.texto);
+  if (lista.length > 12) lineas.push('… y ' + (lista.length - 12) + ' más');
+  const quitar = confirm([
+    'Gastos del Forms que parecen tickets pendientes de pago', '',
+    ...lineas, '',
+    'Aceptar: son tickets, no gastos. Se quitan de los gastos de esos días.',
+    'Cancelar: sí son gastos. Se dejan como están y no se vuelve a preguntar.'
+  ].join('\n'));
+  lista.forEach(({ds, it, ap}) => {
+    it.revisado = true; it.esTicket = quitar;
+    if (!quitar) return;
+    const d = state.days[ds];
+    // solo se resta si el día lleva al menos ese gasto: en un día cargado con la versión anterior no se sabe si se sumó
+    if (d && (d.gastos||0) + 0.005 >= it.v) d.gastos = Math.max(0, Math.round(((d.gastos||0) - it.v)*100)/100);
+    ap.gastos = Math.max(0, Math.round(((ap.gastos||0) - it.v)*100)/100);
+  });
+  return quitar ? lista.length : 0;
+}
+
 function loadForms(evt) {
   const file = evt.target.files[0]; if (!file) return;
+  evt.target.value = '';   // sin esto, volver a elegir el mismo fichero (ya con las filas nuevas) no hace nada
   const reader = new FileReader();
   reader.onload = e => {
     const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
@@ -3167,62 +3334,37 @@ function loadForms(evt) {
 
       if (!grouped[ds]) grouped[ds] = {};
       // Sum if multiple entries per employee per day
-      if (!grouped[ds][nombre]) grouped[ds][nombre] = {efectivo:0, glovo:0, gastos:0, comentarios:[]};
+      if (!grouped[ds][nombre]) grouped[ds][nombre] = {efectivo:0, glovo:0, gastos:0, gastosItems:[], comentarios:[]};
       grouped[ds][nombre].efectivo += efectivo;
       grouped[ds][nombre].glovo    += glovo;
       grouped[ds][nombre].gastos   += gastosForms;
+      if (gastosForms > 0) grouped[ds][nombre].gastosItems.push({v: gastosForms, nums: numerosDeTexto(gastosRaw)});   // cada gasto por separado, para reconocer los que son tickets (E-48)
       if (coment) grouped[ds][nombre].comentarios.push(coment);
       count++;
     }
 
-    // Merge into state.days — solo carga días sin efectivo para no machacar datos manuales
-    let merged = 0;
-    let skipped = 0;
+    // Cada día se mezcla por empleada y sin duplicar nada (E-08): ver aplicarFormsDia
+    const r = {nuevos:0, actualizados:0, omitidos:0, conflictos:0};
     Object.entries(grouped).forEach(([ds, empData]) => {
-      if (!state.days[ds]) {
-        state.days[ds] = {
-          employees: state.defaultEmployees.map(n=>({name:n,efectivo:0,glovo:0,ministerio:0})),
-          glovo:0, promo:0, gastos:0, notas:''
-        };
-      }
-
-      // Guardar siempre lo que viene del Forms para comparar después
-      if (!state.formsData[ds]) state.formsData[ds] = {};
-      Object.entries(empData).forEach(([nombre, vals]) => {
-        // Bajo el nombre de la empleada de la app si coincide, que es el que usa Seguimiento
-        const empF = buscarEmpleada(state.days[ds].employees, nombre);
-        state.formsData[ds][empF ? empF.name : nombre] = Math.round(vals.efectivo*100)/100;
-      });
-
-      // Si el día ya tiene efectivo introducido a mano, no tocarlo. El de Lucía no cuenta: son sus tickets,
-      // y con ellos el Forms de ese día se descartaba entero (E-08)
-      const yaHayDatos = state.days[ds].employees.some(e => !esLucia(e.name) && (e.efectivo||0) > 0);
-      if (yaHayDatos) { skipped++; return; }
-
-      Object.entries(empData).forEach(([nombre, vals]) => {
-        const emp = buscarEmpleada(state.days[ds].employees, nombre);
-        if (emp) {
-          if (!esLucia(emp.name)) emp.efectivo = Math.round(vals.efectivo*100)/100;   // E-34: el efectivo de Lucía son sus tickets, no el Forms
-          if (vals.glovo > 0) {
-            state.days[ds].glovo = Math.round((state.days[ds].glovo + vals.glovo)*100)/100;
-          }
-          if (vals.gastos > 0) {
-            state.days[ds].gastos = Math.round(((state.days[ds].gastos||0) + vals.gastos)*100)/100;
-          }
-        } else {
-          state.days[ds].employees.push({name:nombre, efectivo: esLucia(nombre) ? 0 : vals.efectivo, glovo:0, ministerio:0});
-        }
-        merged++;
-      });
+      const x = aplicarFormsDia(ds, empData);
+      if (x.omitido) r.omitidos++;
+      else if (x.primera) r.nuevos++;
+      else if (x.cambios > 0) r.actualizados++;
+      r.conflictos += x.conflictos;
     });
+    const gastosQuitados = revisarGastosForms();   // E-48: gastos que parecen tickets pendientes de pago
 
-    const skipMsg = skipped > 0 ? ` · ${skipped} días con datos omitidos` : '';
+    const partes = [`${r.nuevos} días cargados`];
+    if (r.actualizados) partes.push(`${r.actualizados} actualizados con lo nuevo del Forms`);
+    if (r.omitidos) partes.push(`${r.omitidos} con datos a mano, sin tocar`);
+    if (r.conflictos) partes.push(`${r.conflictos} valores cambiados a mano, sin tocar (míralos en Seguimiento)`);
+    if (gastosQuitados) partes.push(`${gastosQuitados} gastos quitados por ser tickets`);
     document.getElementById('stForms').textContent = `✓ ${Object.keys(grouped).length} días`;
     document.getElementById('zForms').classList.add('loaded');
     saveState();
     rebuildDays();
     if (state.selectedDay && grouped[state.selectedDay]) renderDayDetail(state.selectedDay);
-    toast(`✅ Forms: ${Object.keys(grouped).length - skipped} días cargados${skipMsg}`);
+    toast(`✅ Forms: ${partes.join(' · ')}`);
   };
   reader.readAsArrayBuffer(file);
 }
@@ -4289,6 +4431,7 @@ function handleLuciaTicketsFile(evt) {
       const h = hojaDeTickets(wb);
       if (!h) { toast('❌ No se reconoce el fichero de tickets: busco una hoja con las columnas Fecha, Cliente e Importe'); return; }
       const r = importarTickets(h.rows, h.hdr);
+      const gastosQuitados = revisarGastosForms();   // E-48: tickets que llegan después del Forms y que se habían apuntado como gasto
       recalcAll(); renderDayGrid(); saveState(); renderPendientes();
       if (state.selectedDay) renderDayDetail(state.selectedDay);
       const partes = [`${r.nuevos} nuevos`];
@@ -4296,6 +4439,7 @@ function handleLuciaTicketsFile(evt) {
       if (r.cobrados) partes.push(`${r.cobrados} ya cobrados`);
       if (r.sinFecha) partes.push(`${r.sinFecha} sin fecha válida, sin cargar`);
       if (r.cobradosSinFecha) partes.push(`${r.cobradosSinFecha} cobrados sin fecha de cobro, cargados como pendientes`);
+      if (gastosQuitados) partes.push(`${gastosQuitados} gastos del Forms quitados por ser estos tickets`);
       toast(`✅ Tickets Lucía (hoja «${h.hoja}»): ${partes.join(' · ')}`);
     } catch (err) {
       console.error(err);
