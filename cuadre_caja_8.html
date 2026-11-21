@@ -1897,6 +1897,7 @@ function describirCobro(p) {
   if (liq) return 'Liquidación con Lucía del ' + fechaDMA(liq.fecha);
   const con = (state.conciliaciones || []).find(c => c.id === p.ref);
   if (con) return 'Ingreso del banco del ' + fechaDMA(con.fecha) + (con.concepto ? ': ' + con.concepto : '');
+  if (p.ref === 'importado') return 'Cobrado según el fichero importado';
   return p.ref ? 'Ref. ' + p.ref : '';
 }
 
@@ -4212,51 +4213,94 @@ function importLuciaTickets() {
   document.getElementById('luciaTicketsFile').click();
 }
 
+// Qué hoja del libro trae los tickets. Primero la que se llama «Tickets Lucía» (así sale en el Excel que exporta la
+// app, donde no es la primera hoja: E-18); si no, la primera hoja con una cabecera Fecha · Cliente · Importe.
+// Devuelve {rows, hdr} (las filas de la hoja y el índice de su cabecera) o null si ninguna sirve.
+function filaCabeceraTickets(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const cols = (rows[i] || []).map(c => normNombre(c));
+    if (cols.some(c => c.includes('fecha')) && cols.some(c => c.includes('cliente')) && cols.some(c => c.includes('importe'))) return i;
+  }
+  return -1;
+}
+function hojaDeTickets(wb) {
+  const nombres = [...wb.SheetNames].sort((a, b) => (normNombre(b) === 'tickets lucia') - (normNombre(a) === 'tickets lucia'));
+  for (const n of nombres) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, defval:null});
+    const hdr = filaCabeceraTickets(rows);
+    if (hdr >= 0) return {rows, hdr, hoja: n};
+  }
+  return null;
+}
+
+// Mete en el libro de pendientes los tickets de una hoja, sin duplicar los que ya están (E-18): un ticket es el
+// mismo si coinciden fecha, cliente (sin mayúsculas ni tildes) e importe, y se cuentan: si el fichero trae dos
+// iguales y la app ya tiene uno, se añade solo el que falta. Lee, si las hay, las columnas Pago, Estado y
+// Cobrado el del Excel que exporta la app. Un ticket «Cobrado» que la app no tenía entra ya cobrado, con la
+// fecha del fichero y sin liquidación ni ingreso del banco (la referencia «importado»); lo que se ha entregado
+// o ingresado se recupera con la copia completa, no con este fichero.
+// Devuelve {nuevos, repetidos, cobrados, sinFecha, cobradosSinFecha}.
+function importarTickets(rows, hdr) {
+  const cols = rows[hdr].map(c => normNombre(c));
+  const iFecha = cols.findIndex(c => c.includes('fecha')), iCliente = cols.findIndex(c => c.includes('cliente')), iImporte = cols.findIndex(c => c.includes('importe'));
+  const iPago = cols.indexOf('pago'), iEstado = cols.indexOf('estado'), iCobro = cols.indexOf('cobrado el');
+  const clave = (f, c, imp) => f + '|' + normNombre(c) + '|' + Math.round(imp * 100);
+  const enApp = {};
+  state.pendientes.forEach(p => { const k = clave(p.fecha, p.cliente, p.importe); enApp[k] = (enApp[k] || 0) + 1; });
+
+  const r = {nuevos: 0, repetidos: 0, cobrados: 0, sinFecha: 0, cobradosSinFecha: 0};
+  for (let i = hdr + 1; i < rows.length; i++) {
+    const f = rows[i]; if (!f) continue;
+    const cliente = (f[iCliente] || '').toString().trim();
+    const importe = Math.round(parseNum(f[iImporte]) * 100) / 100;
+    if (!cliente || !importe || normNombre(cliente) === 'total') continue;
+    const ds = toDateStr(f[iFecha]);
+    if (!ds || ds < '2000-01-01') { r.sinFecha++; continue; }
+
+    const k = clave(ds, cliente, importe);
+    if (enApp[k] > 0) { enApp[k]--; r.repetidos++; continue; }
+
+    if (!state.days[ds]) {
+      state.days[ds] = {
+        employees: state.defaultEmployees.map(n=>({name:n,efectivo:0})),
+        glovo:0, promo:0, gastos:0, notas:''
+      };
+    }
+    const txtPago = iPago >= 0 ? normNombre(f[iPago]) : '';
+    const pago = txtPago === 'transferencia' ? 'transferencia' : txtPago === 'efectivo' ? 'efectivo' : undefined;
+    const p = agregarPendiente({fecha: ds, cliente, importe, pago, entidad: pago === 'transferencia'});
+    r.nuevos++;
+    if (iEstado >= 0 && normNombre(f[iEstado]) === 'cobrado') {
+      const dsCobro = iCobro >= 0 ? toDateStr(f[iCobro]) : '';
+      if (dsCobro && dsCobro >= '2000-01-01') { p.estado = 'cobrado'; p.fechaCobro = dsCobro; p.ref = 'importado'; r.cobrados++; }
+      else r.cobradosSinFecha++;
+    }
+  }
+  return r;
+}
+
 function handleLuciaTicketsFile(evt) {
   const file = evt.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-
-    // Find header row with Fecha/Cliente/Importe
-    let hdr = -1;
-    for (let i=0; i<rows.length; i++) {
-      const joined = (rows[i]||[]).map(c=>c?c.toString().toLowerCase():'').join('|');
-      if (joined.includes('fecha') && joined.includes('cliente')) { hdr=i; break; }
+    evt.target.value = '';   // para poder volver a elegir el mismo fichero
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+      const h = hojaDeTickets(wb);
+      if (!h) { toast('❌ No se reconoce el fichero de tickets: busco una hoja con las columnas Fecha, Cliente e Importe'); return; }
+      const r = importarTickets(h.rows, h.hdr);
+      recalcAll(); renderDayGrid(); saveState(); renderPendientes();
+      if (state.selectedDay) renderDayDetail(state.selectedDay);
+      const partes = [`${r.nuevos} nuevos`];
+      if (r.repetidos) partes.push(`${r.repetidos} ya estaban`);
+      if (r.cobrados) partes.push(`${r.cobrados} ya cobrados`);
+      if (r.sinFecha) partes.push(`${r.sinFecha} sin fecha válida, sin cargar`);
+      if (r.cobradosSinFecha) partes.push(`${r.cobradosSinFecha} cobrados sin fecha de cobro, cargados como pendientes`);
+      toast(`✅ Tickets Lucía (hoja «${h.hoja}»): ${partes.join(' · ')}`);
+    } catch (err) {
+      console.error(err);
+      toast('❌ No se han podido cargar los tickets: ' + (err && err.message ? err.message : err));
     }
-    if (hdr<0) { toast('❌ No se reconoce el formato del fichero de tickets'); return; }
-
-    const cols = rows[hdr].map(c=>(c||'').toString().toLowerCase().trim());
-    const iFecha   = cols.findIndex(c=>c.includes('fecha'));
-    const iCliente = cols.findIndex(c=>c.includes('cliente'));
-    const iImporte = cols.findIndex(c=>c.includes('importe'));
-
-    let count = 0;
-    for (let i=hdr+1; i<rows.length; i++) {
-      const r = rows[i]; if (!r) continue;
-      const ds = toDateStr(r[iFecha]);
-      if (!ds || ds < '2000-01-01') continue;
-      const client = (r[iCliente]||'').toString().trim();
-      const amount = parseFloat(r[iImporte])||0;
-      if (!client || !amount || client==='Total') continue;
-
-      if (!state.days[ds]) {
-        state.days[ds] = {
-          employees: state.defaultEmployees.map(n=>({name:n,efectivo:0})),
-          glovo:0, promo:0, gastos:0, notas:''
-        };
-      }
-      agregarPendiente({fecha: ds, cliente: client, importe: amount, pago});   // E-18: «pago» no existe en esta función y la importación falla; se corrige en el paso 6
-      count++;
-    }
-
-    // Reset file input
-    evt.target.value = '';
-    saveState();
-    if (state.selectedDay) renderDayDetail(state.selectedDay);
-    toast(`✅ ${count} tickets de Lucía cargados`);
   };
   reader.readAsArrayBuffer(file);
 }
