@@ -405,6 +405,15 @@
     transition: border-color .2s; text-align: right;
   }
   .libro-input:focus { outline: none; border-color: var(--teal); background: #fff; }
+  .libro-aviso { font-size: .74rem; line-height: 1.45; margin-top: 8px; color: var(--muted); }
+  .libro-aviso:empty { display: none; }
+  .libro-aviso.ok { color: var(--teal); }
+  .libro-aviso.dif { color: var(--warn); }
+  .libro-aviso button {
+    margin-top: 6px; padding: 4px 10px; font-size: .74rem; border-radius: 5px; cursor: pointer;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); font-family: 'Jost', sans-serif;
+  }
+  .libro-aviso button:hover { border-color: var(--teal); color: var(--teal); }
   .libro-resumen {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 10px; overflow: hidden;
@@ -1343,6 +1352,7 @@
             <span class="libro-tag-gasto">− Gasto</span>
           </div>
           <input class="libro-input" type="number" id="libroExtraLucia" placeholder="0,00" step="0.01" min="0" oninput="libroChanged()">
+          <div class="libro-aviso" id="libroExtraLuciaAviso"></div>
         </div>
 
         <!-- FESTIVOS — siempre gasto -->
@@ -3704,6 +3714,7 @@ function getLibroState() {
 
 function updateLibroTotals() {
   const lb = getLibroState();
+  renderAvisoExtraLucia();
   let net = 0;
   LIBRO_FIXED.forEach(c => {
     const item = lb[c.key];
@@ -3869,6 +3880,33 @@ function calcVariableLucia() {
   const redondeado = Math.floor(Math.round(calculado * 100) / 500) * 5;   // en céntimos, para que 1.540,00 no baje a 1.535
   return {ventaNeta, excedente, calculado, redondeado, diasConEfectivo: conEfectivo.length,
           diasSinEfectivo: dias.length - conEfectivo.length};
+}
+
+// Aviso bajo «Extra Lucía ≥100k» en el Libro: compara lo tecleado con el cálculo de la app. No cambia ningún
+// importe por sí solo: el Libro cuenta en Cajas física y en el arqueo, y la variable se paga a final de mes.
+function renderAvisoExtraLucia() {
+  const el = document.getElementById('libroExtraLuciaAviso');
+  if (!el) return;
+  if (!state.daysInMonth || state.daysInMonth.length === 0) { el.className = 'libro-aviso'; el.innerHTML = ''; return; }
+  const v = calcVariableLucia();
+  const puesto = Math.round(((getLibroState().ExtraLucia || {}).amount || 0) * 100) / 100;
+  const detalle = 'Venta Neta ' + fmt(v.ventaNeta) + ' €' + (v.calculado > 0 ? ' → ' + fmt(v.calculado) + ' €, a múltiplo de 5 hacia abajo' : ' (umbral ' + fmt(LUCIA_UMBRAL) + ' €)');
+  const sinEf = v.diasSinEfectivo > 0 ? ' No cuenta ' + v.diasSinEfectivo + (v.diasSinEfectivo === 1 ? ' día' : ' días') + ' sin efectivo.' : '';
+  if (Math.abs(puesto - v.redondeado) < 0.005) {
+    el.className = 'libro-aviso ok';
+    el.innerHTML = '✓ Coincide con el cálculo de la app. ' + detalle + '.' + sinEf;
+  } else {
+    el.className = 'libro-aviso dif';
+    el.innerHTML = 'La app calcula <b>' + fmt(v.redondeado) + ' €</b>. ' + detalle + '.' + sinEf +
+      '<br><button type="button" onclick="usarVariableLucia()">Usar ' + fmt(v.redondeado) + ' €</button>';
+  }
+}
+
+function usarVariableLucia() {
+  const v = calcVariableLucia();
+  const el = document.getElementById(LIBRO_IDS.ExtraLucia);
+  if (el) el.value = v.redondeado || '';
+  libroChanged();
 }
 
 function renderStats() {
@@ -5258,6 +5296,7 @@ function updateDaySummary(ds) {
 
 // ─── Recalc all (Resumen + Cajas) ─────────────────────────────────────────
 function recalcAll() {
+  renderAvisoExtraLucia();
   renderArqueo();   // el arqueo se calcula aunque el mes no tenga días (saldo y Libro cuentan)
   if (state.daysInMonth.length === 0) { mostrarMesSinDatos(); return; }
   renderResumen();
