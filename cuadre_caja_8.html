@@ -3857,6 +3857,20 @@ function initDark() {
 const LUCIA_UMBRAL  = 100000;
 const LUCIA_PCT     = 0.10;
 
+// Variable de Lucía del mes cargado (E-35): el 10 % de la Venta Neta por encima de 100.000 €, contando solo los
+// días con efectivo. El titular la paga redondeada al múltiplo de 5 inmediatamente inferior, y esa es la cifra que
+// va al Libro («Extra Lucía ≥100k»): `redondeado`. `calculado` es el valor sin redondear.
+function calcVariableLucia() {
+  const dias = (state.daysInMonth || []).filter(ds => state.farmatic[ds]);
+  const conEfectivo = dias.filter(ds => getDayEfectivo(ds) > 0);
+  const ventaNeta = conEfectivo.reduce((s, ds) => s + (state.farmatic[ds].ventaNeta || 0), 0);
+  const excedente = Math.max(0, ventaNeta - LUCIA_UMBRAL);
+  const calculado = Math.round(excedente * LUCIA_PCT * 100) / 100;
+  const redondeado = Math.floor(Math.round(calculado * 100) / 500) * 5;   // en céntimos, para que 1.540,00 no baje a 1.535
+  return {ventaNeta, excedente, calculado, redondeado, diasConEfectivo: conEfectivo.length,
+          diasSinEfectivo: dias.length - conEfectivo.length};
+}
+
 function renderStats() {
   const grid = document.getElementById('statsGrid');
   if (!grid) return;
@@ -3888,8 +3902,9 @@ function renderStats() {
     : 0;
 
   // Variable Lucía — sobre venta neta de días con efectivo
-  const excedente    = Math.max(0, ventaNeta - LUCIA_UMBRAL);
-  const variableLucia = Math.round(excedente * LUCIA_PCT * 100) / 100;
+  const vl           = calcVariableLucia();
+  const excedente    = vl.excedente;
+  const variableLucia = vl.redondeado;   // la que se paga: múltiplo de 5 inferior (E-35)
   const pctUmbral    = Math.min(100, (ventaNeta / LUCIA_UMBRAL) * 100);
   const superaUmbral = ventaNeta >= LUCIA_UMBRAL;
 
@@ -3956,7 +3971,7 @@ function renderStats() {
     : '<div class="lucia-bar-fill" style="width:'+pctUmbral.toFixed(1)+'%"></div>';
 
   const luciaMsg = superaUmbral
-    ? 'Excedente: <span>'+fmt(excedente)+' €</span> sobre 100.000 €'
+    ? 'Excedente: <span>'+fmt(excedente)+' €</span> sobre 100.000 € · calculado <span>'+fmt(vl.calculado)+' €</span>, a múltiplo de 5 hacia abajo'
     : 'Faltan <span>'+fmt(LUCIA_UMBRAL - ventaNeta)+' €</span> para superar el umbral';
 
   const topVentasRows = topVentas.map(d => {
