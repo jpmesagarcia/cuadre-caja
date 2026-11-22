@@ -5965,8 +5965,7 @@ function exportExcelCore() {
     XLSX.utils.book_append_sheet(wb, wsCF, 'Cajas física');
   }
 
-  // ── 4b. HOJA LIBRO (después de Cajas)
-  // (moved here, generated below)
+  // ── 4b. HOJA LIBRO: se genera más abajo (apartado 7) y se coloca después de las Cajas al final
 
   // ── 5. HOJAS DIARIAS ─────────────────────────────────────────────────────
   sortedAsc.forEach(ds => {
@@ -6256,6 +6255,13 @@ function exportExcelCore() {
   euroRow(wsLibro, libTotR, 2, 5, GOLD_LT);
   fmtSheet(wsLibro, [3,22,14,10,12,12]);
   XLSX.utils.book_append_sheet(wb, wsLibro, 'Libro');
+  // La hoja Libro va justo después de las Cajas (como en el Excel de siempre), no al final.
+  {
+    const nombres = wb.SheetNames;
+    nombres.splice(nombres.indexOf('Libro'), 1);
+    const ultimaCaja = Math.max(nombres.indexOf('Cajas'), nombres.indexOf('Cajas física'));
+    nombres.splice(ultimaCaja + 1, 0, 'Libro');
+  }
 
   const fname = `${m}. ${monthName} ${y}.xlsx`;
   XLSX.writeFile(wb, fname, { bookSST: false, cellStyles: true });
