@@ -4939,34 +4939,18 @@ function renderOtrosIngresos() {
   const el = document.getElementById('informesOtrosIngresos');
   if (!el) return;
 
-  const rows = state.caixaRawRows || [];
   const [y,m] = (state.month||'2026-01').split('-').map(Number);
   const otros = [];
 
-  rows.slice(3).forEach(r => {
-    if (!r) return;
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    const esON     = mov.includes('on ') || /on/.test(mov);
-    const esCajero = mov.includes('ingreso') && mov.includes('cajero');
-    if (esON || esCajero) return; // ya contabilizados
-
-    // Get fecha and importe
-    let fecha=null, importe=null, concepto='';
-    r.forEach(v => {
-      if (!v) return;
-      const ds = toDateStr(v);
-      if (ds && ds > '2000-01-01' && !fecha) fecha = ds;
-      if (typeof v === 'number' && Math.abs(v) > 0 && importe === null) importe = v;
-      if (typeof v === 'string' && v.length > 3) concepto = v;
-    });
-    if (!fecha || importe === null) return;
+  movimientosBanco().forEach(mv => {
+    if (mv.tipo !== 'otro') return; // las visas y los ingresos en cajero ya están contabilizados
+    if (!(mv.importe > 0)) return;  // solo ingresos
     // Filter to current month
-    const [fy,fm] = fecha.split('-').map(Number);
+    const [fy,fm] = mv.fecha.split('-').map(Number);
     if (fy !== y || fm !== m) return;
-    if (importe <= 0) return; // solo ingresos
 
-    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
-    otros.push({fecha: wd+' '+fecha.slice(5), concepto, importe});
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(mv.fecha + 'T12:00:00').getDay()];
+    otros.push({fecha: wd+' '+mv.fecha.slice(5), concepto: mv.concepto, importe: mv.importe});
   });
 
   if (otros.length === 0) {
@@ -5020,29 +5004,16 @@ function exportGastos() {
 }
 
 function exportOtrosIngresos() {
-  const rows = state.caixaRawRows || [];
   const [y,m] = (state.month||'2026-01').split('-').map(Number);
   const TEAL = 'FF086C74';
   const expRows = [['Fecha','Concepto','Importe (€)']];
 
-  rows.slice(3).forEach(r => {
-    if (!r) return;
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    if (mov.includes('on ') || /on/.test(mov)) return;
-    if (mov.includes('ingreso') && mov.includes('cajero')) return;
-    let fecha=null, importe=null, concepto='';
-    r.forEach(v => {
-      if (!v) return;
-      const ds = toDateStr(v);
-      if (ds && ds>'2000-01-01' && !fecha) fecha=ds;
-      if (typeof v==='number' && Math.abs(v)>0 && importe===null) importe=v;
-      if (typeof v==='string' && v.length>3) concepto=v;
-    });
-    if (!fecha||importe===null||importe<=0) return;
-    const [fy,fm] = fecha.split('-').map(Number);
+  movimientosBanco().forEach(mv => {
+    if (mv.tipo !== 'otro' || !(mv.importe > 0)) return;
+    const [fy,fm] = mv.fecha.split('-').map(Number);
     if (fy!==y||fm!==m) return;
-    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
-    expRows.push([wd+' '+fecha.slice(5), concepto, importe]);
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(mv.fecha + 'T12:00:00').getDay()];
+    expRows.push([wd+' '+mv.fecha.slice(5), mv.concepto, mv.importe]);
   });
 
   if (expRows.length<=1) { toast('Sin otros ingresos que exportar'); return; }
@@ -5745,18 +5716,13 @@ function exportExcelCore() {
   fmtSheet(wsFarmatic, [13,12,12,12,13,13,12,12,8,12,8,13,12]);
   XLSX.utils.book_append_sheet(wb, wsFarmatic, 'Farmatic');
 
-  // ── 2. LA CAIXA — solo ingresos por visas (ON)
-  const allCaixaRows = state.caixaRawRows && state.caixaRawRows.length > 0
-    ? state.caixaRawRows.map(r => [...(r||[])])
-    : [];
-  // Find header rows (first 3) and filter only ON rows
-  const caixaHeaderRows = allCaixaRows.slice(0, 3);
-  const caixaVisaRows = allCaixaRows.slice(3).filter(r => {
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    return (mov.includes('on ') || /\bon\b/.test(mov));
-  });
+  // ── 2. LA CAIXA — solo ingresos por visas (ON), con la misma regla de lectura que la carga del banco
+  const rawCaixa = state.caixaRawRows || [];
+  const colsCaixa = columnasBanco(rawCaixa);
+  const caixaHeaderRows = colsCaixa ? rawCaixa.slice(0, colsCaixa.fila + 1).map(r => [...(r||[])]) : [];
+  const caixaVisaRows = movimientosBanco().filter(m => m.tipo === 'visa').map(m => [...m.fila]);
   const cRows = [...caixaHeaderRows, ...caixaVisaRows];
-  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows.length > 3 ? cRows : caixaHeaderRows);
+  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows);
   fmtSheet(wsCaixa, [14,14,20,24,10]);
   XLSX.utils.book_append_sheet(wb, wsCaixa, 'La caixa');
 
