@@ -2007,12 +2007,11 @@ function nuevoIdConciliacion() {
 
 // Ingresos del extracto cargado que no son visas ni cajero, de todos los meses (a veces el ingreso llega al mes
 // siguiente), con un id estable: fecha|céntimos|concepto y, si hay dos movimientos idénticos, #0, #1…
-// Es lo de «Otros informes» con la regla de la carga del banco (leerFilaBanco), que no pierde las filas de lunes (E-11).
+// Es lo de «Otros informes», con la misma regla de lectura del banco (leerFilaBanco).
 function getIngresosBanco() {
   const out = [], vistos = {};
-  (state.caixaRawRows || []).slice(3).forEach(r => {
-    const m = leerFilaBanco(r);
-    if (!m || m.tipo !== 'otro' || !(m.importe > 0)) return;
+  movimientosBanco().forEach(m => {
+    if (m.tipo !== 'otro' || !(m.importe > 0)) return;
     const importe = Math.round(m.importe * 100) / 100;
     const clave = m.fecha + '|' + Math.round(importe * 100) + '|' + normNombre(m.concepto);
     const n = vistos[clave] = (vistos[clave] === undefined ? 0 : vistos[clave] + 1);
@@ -3380,37 +3379,89 @@ function loadForms(evt) {
 }
 
 // ─── Movimientos del banco ─────────────────────────────────────────────────
-// Lee una fila del extracto de La Caixa con la regla de la carga del banco (la que alimenta las visas y los
-// ingresos en cajero de Cajas) y devuelve {fecha, importe, movimiento, concepto, tipo}, o null si la fila no
-// tiene fecha o importe. movimiento = texto de las celdas de texto en minúsculas; concepto = el último texto
-// largo (para enseñarlo); tipo = 'visa' (ON), 'cajero' (ingreso en cajero) u 'otro' (todo lo demás: lo que
-// no cuenta en ninguna caja). Conserva los defectos conocidos de la regla (E-10, E-12): se corrigen en la fase 3.
+// Una sola regla para leer el extracto de La Caixa: la usan la carga del banco, los ingresos por conciliar,
+// Otros informes y los dos Excel exportados (E-10, E-11, E-12).
+//  · Las columnas (Fecha, Movimiento, Más datos, Importe) se buscan por el nombre de la cabecera, no por el
+//    orden ni por el tipo de cada celda: una fecha guardada como número no se toma por un importe.
+//  · Una visa es un movimiento cuyo texto empieza por «ON nº-de-comercio DDMM». Solo se mira la columna
+//    Movimiento: ni las fechas ni los nombres de proveedores (BOIRON, ADDON…) pueden dar una fila por visa.
+function normCabeceraBanco(v) {
+  return (v == null ? '' : String(v)).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+}
+// Busca la cabecera en las primeras filas y devuelve la fila y la posición de cada columna, o null si falta
+// alguna de las tres imprescindibles (Fecha, Movimiento e Importe). «Más datos» es opcional.
+function columnasBanco(rows) {
+  const tope = Math.min((rows || []).length, 15);
+  for (let i = 0; i < tope; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const c = { fila: i, fecha: -1, movimiento: -1, masDatos: -1, importe: -1 };
+    r.forEach((v, j) => {
+      const t = normCabeceraBanco(v);
+      if (t === 'fecha' && c.fecha < 0) c.fecha = j;
+      else if (t === 'movimiento' && c.movimiento < 0) c.movimiento = j;
+      else if (t === 'mas datos' && c.masDatos < 0) c.masDatos = j;
+      else if (t === 'importe' && c.importe < 0) c.importe = j;
+    });
+    if (c.fecha >= 0 && c.movimiento >= 0 && c.importe >= 0) return c;
+  }
+  return null;
+}
+// «ON 008562043 2011»: ON, número de comercio y día y mes de la venta (DDMM).
+function esVisaBanco(movimiento) {
+  return /^on\s+\d+\s+(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])\b/i.test((movimiento == null ? '' : String(movimiento)).trim());
+}
+// Importe de una celda: número, o texto con formato español («1.234,56», «1234,56») o con punto decimal.
+function importeBanco(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const s = v.replace(/[\s€]/g, '');
+    if (/^-?\d{1,3}(\.\d{3})*,\d+$/.test(s)) return parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    if (/^-?\d+,\d+$/.test(s)) return parseFloat(s.replace(',', '.'));
+    if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+  }
+  return null;
+}
+
 function fechaCeldaBanco(v) {
   // Tras recargar la página las fechas del extracto son texto ISO con hora UTC («2026-10-25T23:00:00.000Z»):
   // pasan por Date para volver al día local que tenían al cargar el fichero.
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const d = new Date(v); if (!isNaN(d)) return toDateStr(d); }
   return toDateStr(v);
 }
-function leerFilaBanco(r) {
-  if (!r) return null;
-  let fecha = null, movimiento = '', importe = null, concepto = '';
-  for (let j = 0; j < r.length; j++) {
-    const v = r[j];
-    if (!v) continue;
-    const ds = fechaCeldaBanco(v);
-    if (ds && ds.match(/^\d{4}-\d{2}-\d{2}$/) && ds > '2000-01-01' && !fecha) fecha = ds;
-    if (typeof v === 'string') {
-      const esFechaISO = /^\d{4}-\d{2}-\d{2}T/.test(v);
-      if (!esFechaISO) { movimiento += ' ' + v.toLowerCase(); if (v.length > 3) concepto = v; }
-    }
-    if (typeof v === 'number' && Math.abs(v) > 0 && Math.abs(v) < 100000 && importe === null) importe = v;
-  }
-  if (!fecha || importe === null) return null;
-  const mov = movimiento.trim();
-  const esON = mov.includes('on ') || /\bon\b/.test(mov);
-  const esCajero = mov.includes('ingreso') && mov.includes('cajero');
-  const tipo = (esON && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
-  return { fecha, importe, movimiento: mov, concepto: concepto.trim(), tipo };
+
+// Lee una fila del extracto con las columnas de columnasBanco y devuelve {fecha, importe, movimiento, concepto,
+// tipo}, o null si la fila no tiene fecha o importe legibles. movimiento = Movimiento y Más datos en minúsculas;
+// concepto = lo que se enseña (Más datos y, si no hay, Movimiento: igual que antes, porque los ids de las
+// conciliaciones guardadas dependen de él); tipo = 'visa' (ON), 'cajero' (ingreso en cajero) u 'otro' (todo lo
+// demás: lo que no cuenta en ninguna caja).
+function leerFilaBanco(r, cols) {
+  if (!r || !cols) return null;
+  const fecha = fechaCeldaBanco(r[cols.fecha]);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || fecha <= '2000-01-01') return null;
+  const importe = importeBanco(r[cols.importe]);
+  if (importe === null || importe === 0) return null;
+  const texto = j => (j >= 0 && typeof r[j] === 'string') ? r[j].trim() : '';
+  const mov = texto(cols.movimiento), mas = texto(cols.masDatos);
+  const movimiento = (mov + ' ' + mas).trim().toLowerCase();
+  const esCajero = movimiento.includes('ingreso') && movimiento.includes('cajero');
+  const tipo = (esVisaBanco(mov) && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
+  const concepto = mas.length > 3 ? mas : mov.length > 3 ? mov : '';
+  return { fecha, importe, movimiento, concepto, tipo };
+}
+
+// Los movimientos del extracto guardado (state.caixaRawRows: títulos, cabecera y movimientos tal como estaban
+// en el fichero), leídos con la misma regla que la carga. Cada uno lleva su fila original en `fila`.
+function movimientosBanco() {
+  const raw = state.caixaRawRows || [];
+  const cols = columnasBanco(raw);
+  if (!cols) return [];
+  const out = [];
+  raw.slice(cols.fila + 1).forEach(r => {
+    const m = leerFilaBanco(r, cols);
+    if (m) out.push(Object.assign({ fila: r }, m));
+  });
+  return out;
 }
 
 // ─── Load Caixa ────────────────────────────────────────────────────────────
@@ -3421,23 +3472,25 @@ function loadCaixa(evt) {
     const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    // Las columnas se leen por el nombre de la cabecera (E-12). Si el fichero no es un extracto reconocible no
+    // se toca lo que ya hubiera cargado.
+    const cols = columnasBanco(rows);
+    if (!cols) { toast('❌ No se reconoce el extracto de La Caixa: la cabecera debe tener las columnas Fecha, Movimiento e Importe'); return; }
+
     state.caixa = {};      // visas TPV por fecha de venta (d-1)
     state.cajero = {};     // ingresos en cajero por fecha del banco
     state.caixaRawRows = []; // filas originales para exportar
 
-    // Find header row to detect column positions
-    let hdrC = -1;
-    for (let i=0;i<rows.length;i++) {
-      if (rows[i] && rows[i].some(c => c && c.toString().toLowerCase().includes('fecha'))) { hdrC=i; break; }
-    }
-    // Store header rows for export
-    for (let i=0; i<=Math.max(hdrC,2); i++) state.caixaRawRows.push(rows[i]||[]);
+    // Títulos y cabecera, para exportar
+    for (let i=0; i<=cols.fila; i++) state.caixaRawRows.push(rows[i]||[]);
 
-    for (let i=hdrC+1; i<rows.length; i++) {
-      const r = rows[i]; if (!r) continue;
+    let sinLeer = 0;   // filas con algo escrito pero sin fecha o importe legibles
+    for (let i=cols.fila+1; i<rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.some(c => c !== null && c !== '')) continue;
 
-      const m = leerFilaBanco(r);
-      if (!m) continue;
+      const m = leerFilaBanco(r, cols);
+      if (!m) { sinLeer++; continue; }
       state.caixaRawRows.push(r); // save for export
 
       if (m.tipo === 'visa') {
@@ -3458,7 +3511,7 @@ function loadCaixa(evt) {
     setStep(2);
     saveState();
     rebuildDays();
-    toast(`✅ Caixa: ${n} días de cobros cargados`);
+    toast(`✅ Caixa: ${n} días de cobros cargados` + (sinLeer ? ` · ${sinLeer} fila${sinLeer === 1 ? '' : 's'} sin fecha o importe legibles, ignorada${sinLeer === 1 ? '' : 's'}` : ''));
   };
   reader.readAsArrayBuffer(file);
 }
@@ -4886,34 +4939,18 @@ function renderOtrosIngresos() {
   const el = document.getElementById('informesOtrosIngresos');
   if (!el) return;
 
-  const rows = state.caixaRawRows || [];
   const [y,m] = (state.month||'2026-01').split('-').map(Number);
   const otros = [];
 
-  rows.slice(3).forEach(r => {
-    if (!r) return;
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    const esON     = mov.includes('on ') || /on/.test(mov);
-    const esCajero = mov.includes('ingreso') && mov.includes('cajero');
-    if (esON || esCajero) return; // ya contabilizados
-
-    // Get fecha and importe
-    let fecha=null, importe=null, concepto='';
-    r.forEach(v => {
-      if (!v) return;
-      const ds = toDateStr(v);
-      if (ds && ds > '2000-01-01' && !fecha) fecha = ds;
-      if (typeof v === 'number' && Math.abs(v) > 0 && importe === null) importe = v;
-      if (typeof v === 'string' && v.length > 3) concepto = v;
-    });
-    if (!fecha || importe === null) return;
+  movimientosBanco().forEach(mv => {
+    if (mv.tipo !== 'otro') return; // las visas y los ingresos en cajero ya están contabilizados
+    if (!(mv.importe > 0)) return;  // solo ingresos
     // Filter to current month
-    const [fy,fm] = fecha.split('-').map(Number);
+    const [fy,fm] = mv.fecha.split('-').map(Number);
     if (fy !== y || fm !== m) return;
-    if (importe <= 0) return; // solo ingresos
 
-    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
-    otros.push({fecha: wd+' '+fecha.slice(5), concepto, importe});
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(mv.fecha + 'T12:00:00').getDay()];
+    otros.push({fecha: wd+' '+mv.fecha.slice(5), concepto: mv.concepto, importe: mv.importe});
   });
 
   if (otros.length === 0) {
@@ -4967,29 +5004,16 @@ function exportGastos() {
 }
 
 function exportOtrosIngresos() {
-  const rows = state.caixaRawRows || [];
   const [y,m] = (state.month||'2026-01').split('-').map(Number);
   const TEAL = 'FF086C74';
   const expRows = [['Fecha','Concepto','Importe (€)']];
 
-  rows.slice(3).forEach(r => {
-    if (!r) return;
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    if (mov.includes('on ') || /on/.test(mov)) return;
-    if (mov.includes('ingreso') && mov.includes('cajero')) return;
-    let fecha=null, importe=null, concepto='';
-    r.forEach(v => {
-      if (!v) return;
-      const ds = toDateStr(v);
-      if (ds && ds>'2000-01-01' && !fecha) fecha=ds;
-      if (typeof v==='number' && Math.abs(v)>0 && importe===null) importe=v;
-      if (typeof v==='string' && v.length>3) concepto=v;
-    });
-    if (!fecha||importe===null||importe<=0) return;
-    const [fy,fm] = fecha.split('-').map(Number);
+  movimientosBanco().forEach(mv => {
+    if (mv.tipo !== 'otro' || !(mv.importe > 0)) return;
+    const [fy,fm] = mv.fecha.split('-').map(Number);
     if (fy!==y||fm!==m) return;
-    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(fecha).getDay()];
-    expRows.push([wd+' '+fecha.slice(5), concepto, importe]);
+    const wd = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date(mv.fecha + 'T12:00:00').getDay()];
+    expRows.push([wd+' '+mv.fecha.slice(5), mv.concepto, mv.importe]);
   });
 
   if (expRows.length<=1) { toast('Sin otros ingresos que exportar'); return; }
@@ -5692,18 +5716,13 @@ function exportExcelCore() {
   fmtSheet(wsFarmatic, [13,12,12,12,13,13,12,12,8,12,8,13,12]);
   XLSX.utils.book_append_sheet(wb, wsFarmatic, 'Farmatic');
 
-  // ── 2. LA CAIXA — solo ingresos por visas (ON)
-  const allCaixaRows = state.caixaRawRows && state.caixaRawRows.length > 0
-    ? state.caixaRawRows.map(r => [...(r||[])])
-    : [];
-  // Find header rows (first 3) and filter only ON rows
-  const caixaHeaderRows = allCaixaRows.slice(0, 3);
-  const caixaVisaRows = allCaixaRows.slice(3).filter(r => {
-    const mov = (r||[]).map(c=>c?c.toString().toLowerCase():'').join(' ');
-    return (mov.includes('on ') || /\bon\b/.test(mov));
-  });
+  // ── 2. LA CAIXA — solo ingresos por visas (ON), con la misma regla de lectura que la carga del banco
+  const rawCaixa = state.caixaRawRows || [];
+  const colsCaixa = columnasBanco(rawCaixa);
+  const caixaHeaderRows = colsCaixa ? rawCaixa.slice(0, colsCaixa.fila + 1).map(r => [...(r||[])]) : [];
+  const caixaVisaRows = movimientosBanco().filter(m => m.tipo === 'visa').map(m => [...m.fila]);
   const cRows = [...caixaHeaderRows, ...caixaVisaRows];
-  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows.length > 3 ? cRows : caixaHeaderRows);
+  const wsCaixa = XLSX.utils.aoa_to_sheet(cRows);
   fmtSheet(wsCaixa, [14,14,20,24,10]);
   XLSX.utils.book_append_sheet(wb, wsCaixa, 'La caixa');
 
