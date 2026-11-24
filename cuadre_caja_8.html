@@ -4190,6 +4190,31 @@ const GDRIVE_SCOPES     = 'https://www.googleapis.com/auth/drive.readonly';
 
 let gdriveToken = null;
 
+// ─── Qué ficheros de la carpeta valen como origen de datos (E-20) ─────────────────────────────────────────
+// Antes «Cargar Farmatic» tomaba el último .xlsx de la carpeta, fuera el que fuera, y el Forms cualquier
+// nombre con «Efectivo», también el del backup. Ahora:
+//  · Farmatic: .xlsx cuyo nombre empieza por «Ventas».
+//  · Forms: nombre que empieza por «Efectivo Empleadas», sin «backup», y .xlsx u hoja de Google.
+// El nombre se compara sin mayúsculas ni tildes y con «_» como espacio (el backup de la app se guarda como
+// «Efectivo_Empleadas_…_backup.xlsx»). Entre los que valen se toma el modificado más recientemente.
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+function nombreFicheroDrive(f) {
+  return String((f && f.name) || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[_\s]+/g, ' ').trim();
+}
+function esFicheroFarmatic(f) {
+  const n = nombreFicheroDrive(f);
+  return n.startsWith('ventas') && (f.mimeType === MIME_XLSX || /\.xlsx$/.test(n));
+}
+function esFicheroForms(f) {
+  const n = nombreFicheroDrive(f);
+  return n.startsWith('efectivo empleadas') && !n.includes('backup') &&
+         (String(f.mimeType || '').includes('spreadsheet') || /\.xlsx$/.test(n));
+}
+function elegirFicheroDrive(files, vale) {
+  return (files || []).filter(vale)
+    .sort((a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')))[0] || null;
+}
+
 function driveConnect() {
   const client = google.accounts.oauth2.initTokenClient({
     client_id: GDRIVE_CLIENT_ID,
@@ -4224,19 +4249,18 @@ async function driveLoadForms() {
   btn.textContent = '⏳ Buscando fichero...';
   status.textContent = 'Buscando Efectivo Empleadas en Drive...';
   try {
-    // Search for file containing "Efectivo" in the folder
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+name+contains+'Efectivo'+and+trashed=false&orderBy=modifiedTime+desc&fields=files(id,name,modifiedTime,mimeType)`;
+    // Ficheros de la carpeta con «Efectivo» en el nombre; de ellos vale el que cumple esFicheroForms (E-20)
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+name+contains+'Efectivo'+and+trashed=false&orderBy=modifiedTime+desc&pageSize=1000&fields=files(id,name,modifiedTime,mimeType)`;
     const searchResp = await fetch(searchUrl, {
       headers: { Authorization: 'Bearer ' + gdriveToken }
     });
     if (!searchResp.ok) throw new Error('Error buscando ficheros: ' + searchResp.status);
     const searchData = await searchResp.json();
-    let files = searchData.files || [];
+    const files = searchData.files || [];
 
-    // Filter: prefer xlsx, but also accept Google Sheets
-    const xlsxFiles = files.filter(f => f.mimeType.includes('spreadsheet') || f.name.endsWith('.xlsx'));
-    if (xlsxFiles.length === 0) throw new Error('No se encontró "Efectivo Empleadas" en la carpeta');
-    const file = xlsxFiles[0];
+    const file = elegirFicheroDrive(files, esFicheroForms);
+    if (!file) throw new Error('No hay en la carpeta ningún fichero cuyo nombre empiece por «Efectivo Empleadas» y no contenga «backup»' +
+      (files.length ? ` (hay ${files.length} con «Efectivo» en el nombre, pero ninguno cumple)` : ''));
 
     status.textContent = 'Descargando ' + file.name + '...';
     btn.textContent = '⏳ Descargando...';
@@ -4295,19 +4319,19 @@ async function driveLoadFarmatic() {
   status.textContent = 'Buscando Farmatic en Drive...';
   status.className = 'drive-status';
   try {
-    // Search for xlsx files in the folder
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'+and+trashed=false&orderBy=modifiedTime+desc&fields=files(id,name,modifiedTime)`;
+    // Excel de la carpeta; de ellos vale el más reciente que cumple esFicheroFarmatic (E-20)
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q='${GDRIVE_FOLDER_ID}'+in+parents+and+mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'+and+trashed=false&orderBy=modifiedTime+desc&pageSize=1000&fields=files(id,name,modifiedTime,mimeType)`;
     const searchResp = await fetch(searchUrl, {
       headers: { Authorization: 'Bearer ' + gdriveToken }
     });
     if (!searchResp.ok) throw new Error('Error buscando ficheros: ' + searchResp.status);
     const searchData = await searchResp.json();
     const files = searchData.files || [];
-    if (files.length === 0) {
-      throw new Error('No se encontraron ficheros Excel en la carpeta');
+    const file = elegirFicheroDrive(files, esFicheroFarmatic);
+    if (!file) {
+      throw new Error('No hay en la carpeta ningún Excel (.xlsx) cuyo nombre empiece por «Ventas»' +
+        (files.length ? ` (hay ${files.length} Excel con otro nombre)` : ''));
     }
-    // Take the most recently modified file
-    const file = files[0];
     status.textContent = 'Descargando ' + file.name + '...';
     btn.textContent = '⏳ Descargando...';
     // Download file
