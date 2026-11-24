@@ -3379,9 +3379,12 @@ function loadForms(evt) {
 }
 
 // ─── Movimientos del banco ─────────────────────────────────────────────────
-// Una sola regla para leer el extracto de La Caixa: la usa la carga del banco y los ingresos por conciliar (E-12).
+// Una sola regla para leer el extracto de La Caixa: la usan la carga del banco, los ingresos por conciliar,
+// Otros informes y los dos Excel exportados (E-10, E-11, E-12).
 //  · Las columnas (Fecha, Movimiento, Más datos, Importe) se buscan por el nombre de la cabecera, no por el
 //    orden ni por el tipo de cada celda: una fecha guardada como número no se toma por un importe.
+//  · Una visa es un movimiento cuyo texto empieza por «ON nº-de-comercio DDMM». Solo se mira la columna
+//    Movimiento: ni las fechas ni los nombres de proveedores (BOIRON, ADDON…) pueden dar una fila por visa.
 function normCabeceraBanco(v) {
   return (v == null ? '' : String(v)).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -3403,6 +3406,10 @@ function columnasBanco(rows) {
     if (c.fecha >= 0 && c.movimiento >= 0 && c.importe >= 0) return c;
   }
   return null;
+}
+// «ON 008562043 2011»: ON, número de comercio y día y mes de la venta (DDMM).
+function esVisaBanco(movimiento) {
+  return /^on\s+\d+\s+(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])\b/i.test((movimiento == null ? '' : String(movimiento)).trim());
 }
 // Importe de una celda: número, o texto con formato español («1.234,56», «1234,56») o con punto decimal.
 function importeBanco(v) {
@@ -3438,8 +3445,7 @@ function leerFilaBanco(r, cols) {
   const mov = texto(cols.movimiento), mas = texto(cols.masDatos);
   const movimiento = (mov + ' ' + mas).trim().toLowerCase();
   const esCajero = movimiento.includes('ingreso') && movimiento.includes('cajero');
-  const esON = movimiento.includes('on ') || /\bon\b/.test(movimiento);
-  const tipo = (esON && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
+  const tipo = (esVisaBanco(mov) && importe > 0) ? 'visa' : (esCajero && importe > 0) ? 'cajero' : 'otro';
   const concepto = mas.length > 3 ? mas : mov.length > 3 ? mov : '';
   return { fecha, importe, movimiento, concepto, tipo };
 }
