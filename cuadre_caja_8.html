@@ -3389,16 +3389,17 @@ function normCabeceraBanco(v) {
   return (v == null ? '' : String(v)).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 }
 // Busca la cabecera en las primeras filas y devuelve la fila y la posición de cada columna, o null si falta
-// alguna de las tres imprescindibles (Fecha, Movimiento e Importe). «Más datos» es opcional.
+// alguna de las tres imprescindibles (Fecha, Movimiento e Importe). «Fecha valor» y «Más datos» son opcionales.
 function columnasBanco(rows) {
   const tope = Math.min((rows || []).length, 15);
   for (let i = 0; i < tope; i++) {
     const r = rows[i];
     if (!r) continue;
-    const c = { fila: i, fecha: -1, movimiento: -1, masDatos: -1, importe: -1 };
+    const c = { fila: i, fecha: -1, fechaValor: -1, movimiento: -1, masDatos: -1, importe: -1 };
     r.forEach((v, j) => {
       const t = normCabeceraBanco(v);
       if (t === 'fecha' && c.fecha < 0) c.fecha = j;
+      else if (t === 'fecha valor' && c.fechaValor < 0) c.fechaValor = j;
       else if (t === 'movimiento' && c.movimiento < 0) c.movimiento = j;
       else if (t === 'mas datos' && c.masDatos < 0) c.masDatos = j;
       else if (t === 'importe' && c.importe < 0) c.importe = j;
@@ -3428,6 +3429,15 @@ function fechaCeldaBanco(v) {
   // pasan por Date para volver al día local que tenían al cargar el fichero.
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const d = new Date(v); if (!isNaN(d)) return toDateStr(d); }
   return toDateStr(v);
+}
+
+// Fecha de una fila del extracto tal como se guarda: texto 'AAAA-MM-DD' con el día local, no un Date. Un Date
+// pasa por JSON como texto ISO en UTC («2026-10-31T23:00:00.000Z» es el 1 de noviembre en Madrid) y el día
+// depende de la zona horaria de quien lo vuelva a leer (E-27). Lo que no es una fecha legible se deja como está.
+function fechaBancoGuardada(v) {
+  if (v === null || v === undefined || v === '') return v;
+  const ds = fechaCeldaBanco(v);
+  return (/^\d{4}-\d{2}-\d{2}$/.test(ds) && ds > '2000-01-01') ? ds : v;
 }
 
 // Lee una fila del extracto con las columnas de columnasBanco y devuelve {fecha, importe, movimiento, concepto,
@@ -3491,7 +3501,10 @@ function loadCaixa(evt) {
 
       const m = leerFilaBanco(r, cols);
       if (!m) { sinLeer++; continue; }
-      state.caixaRawRows.push(r); // save for export
+      // Se guarda con las fechas como texto AAAA-MM-DD (E-27), no como Date
+      const fila = r.slice();
+      [cols.fecha, cols.fechaValor].forEach(j => { if (j >= 0) fila[j] = fechaBancoGuardada(fila[j]); });
+      state.caixaRawRows.push(fila); // save for export
 
       if (m.tipo === 'visa') {
         // Visas TPV: asignar al día anterior (día real de venta)
@@ -5720,9 +5733,22 @@ function exportExcelCore() {
   const rawCaixa = state.caixaRawRows || [];
   const colsCaixa = columnasBanco(rawCaixa);
   const caixaHeaderRows = colsCaixa ? rawCaixa.slice(0, colsCaixa.fila + 1).map(r => [...(r||[])]) : [];
-  const caixaVisaRows = movimientosBanco().filter(m => m.tipo === 'visa').map(m => [...m.fila]);
+  // Fecha y Fecha valor van como fechas de Excel (número de serie + formato), no como texto ISO en UTC (E-27),
+  // tanto si la fila está guardada con Date, con texto ISO de una sesión anterior o con AAAA-MM-DD.
+  const colsFechaCaixa = colsCaixa ? [colsCaixa.fecha, colsCaixa.fechaValor].filter(j => j >= 0) : [];
+  const caixaVisaRows = movimientosBanco().filter(m => m.tipo === 'visa').map(m => {
+    const f = [...m.fila];
+    colsFechaCaixa.forEach(j => { const ds = fechaCeldaBanco(f[j]); if (/^\d{4}-\d{2}-\d{2}$/.test(ds)) f[j] = dateSerial(ds); });
+    return f;
+  });
   const cRows = [...caixaHeaderRows, ...caixaVisaRows];
   const wsCaixa = XLSX.utils.aoa_to_sheet(cRows);
+  for (let r = caixaHeaderRows.length; r < cRows.length; r++) {
+    colsFechaCaixa.forEach(j => {
+      const c = wsCaixa[XLSX.utils.encode_cell({r, c:j})];
+      if (c && typeof c.v === 'number') { c.t = 'n'; c.z = FMT_DATE; }   // número de serie, no t='d' (ver E-05)
+    });
+  }
   fmtSheet(wsCaixa, [14,14,20,24,10]);
   XLSX.utils.book_append_sheet(wb, wsCaixa, 'La caixa');
 
