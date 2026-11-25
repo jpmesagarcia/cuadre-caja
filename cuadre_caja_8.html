@@ -3690,7 +3690,7 @@ function renderEmpGrid(ds) {
     // Solo cambia lo que se ve; el nombre guardado sigue siendo el de siempre (Seguimiento, Excel y copias no se tocan).
     const etiqueta = esLucia(emp.name)
       ? `<span class="emp-name" title="Total de los tickets pendientes de pago de este día (Lucía y entidades). Se calcula con la lista de más abajo.">Pendiente de pago</span>`
-      : `<span class="emp-name">${emp.name}</span>`;
+      : `<span class="emp-name">${escHtml(emp.name)}</span>`;
     const row = document.createElement('div');
     row.className = 'emp-row';
     row.innerHTML = `
@@ -3798,7 +3798,7 @@ function updateLibroTotals() {
       const signed = e.sign==='neg' ? -e.amount : e.amount;
       const cls = signed<0 ? 'color:var(--err)' : 'color:var(--teal)';
       return '<div style="display:flex;align-items:center;gap:8px;font-size:.82rem;padding:5px 0">'
-        +'<span style="flex:1">'+e.label+'</span>'
+        +'<span style="flex:1">'+escHtml(e.label)+'</span>'
         +'<span style="font-family:DM Mono,monospace;'+cls+'">'+(signed>=0?'+':'')+fmt(signed)+' €</span>'
         +'<button onclick="removeCustomEntry('+i+')" style="background:none;border:none;cursor:pointer;color:var(--muted2)">✕</button>'
         +'</div>';
@@ -3820,7 +3820,7 @@ function updateLibroTotals() {
       if (!e.amount) return;
       const signed = e.sign==='neg' ? -e.amount : e.amount;
       const cls = signed<0?'neg':'pos';
-      html += '<div class="libro-resumen-item"><span class="li-concept">'+e.label+'</span>'
+      html += '<div class="libro-resumen-item"><span class="li-concept">'+escHtml(e.label)+'</span>'
         +'<span class="li-val '+cls+'">'+(signed>=0?'+':'')+fmt(signed)+' €</span></div>';
     });
     rows.innerHTML = html || '<div class="libro-resumen-item"><span class="li-concept" style="font-style:italic">Sin importes</span></div>';
@@ -3904,7 +3904,7 @@ function renderCustomEntries() {
   list.innerHTML = entries.map((e,i) => {
     const isNeg = e.sign==='neg';
     return `<div class="libro-ticket">
-      <span class="t-client">${e.label} <span style="font-size:.68rem;opacity:.6">${e.type==='med'?'med':e.type==='nomina'?'nómina':'gasto'}</span></span>
+      <span class="t-client">${escHtml(e.label)} <span style="font-size:.68rem;opacity:.6">${e.type==='med'?'med':e.type==='nomina'?'nómina':'gasto'}</span></span>
       <span class="t-amount" style="color:${isNeg?'var(--err)':'var(--teal)'}">${isNeg?'−':'+'} ${fmt(e.amount)} €</span>
       <button class="t-del" onclick="removeCustomEntry(${i})">✕</button>
     </div>`;
@@ -4153,7 +4153,7 @@ function renderStats() {
             const medals = ['🥇','🥈','🥉'];
             return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.78rem">'
               +'<span>'+medals[i]+'</span>'
-              +'<span style="flex:1;color:var(--text)">'+name+'</span>'
+              +'<span style="flex:1;color:var(--text)">'+escHtml(name)+'</span>'
               +'<span style="font-family:DM Mono,monospace;color:var(--teal);font-weight:600">'+fmt(total)+' €</span>'
               +'<span style="font-size:.68rem;color:var(--muted);min-width:30px;text-align:right">'+pct+'%</span>'
               +'</div>';
@@ -4178,7 +4178,7 @@ function renderStats() {
         +'</div>');
   } catch(err) {
     console.error('Error en renderStats:', err);
-    grid.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Error: '+err.message+'</p></div>';
+    grid.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Error: '+escHtml(err.message)+'</p></div>';
   }
 }
 
@@ -4962,10 +4962,10 @@ function renderInformesGastos() {
 
   let html = '<table class="seg-table"><thead><tr><th>Concepto</th><th>Tipo</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
   gastosDiarios.forEach(g => {
-    html += `<tr><td class="mono">${g.label}</td><td style="color:var(--muted);font-size:.75rem">Gasto diario</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
+    html += `<tr><td class="mono">${escHtml(g.label)}</td><td style="color:var(--muted);font-size:.75rem">Gasto diario</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
   });
   gastosLibro.forEach(g => {
-    html += `<tr><td>${g.label}</td><td style="color:var(--muted);font-size:.75rem">Libro</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
+    html += `<tr><td>${escHtml(g.label)}</td><td style="color:var(--muted);font-size:.75rem">Libro</td><td class="right seg-diff-neg">−${fmt(g.amount)} €</td></tr>`;
   });
   html += `<tr style="background:var(--teal-lt);font-weight:700"><td>TOTAL</td><td></td><td class="right" style="color:var(--err)">−${fmt(total)} €</td></tr>`;
   html += '</tbody></table>';
@@ -4998,7 +4998,7 @@ function renderOtrosIngresos() {
   const total = Math.round(otros.reduce((s,o)=>s+o.importe,0)*100)/100;
   let html = '<table class="seg-table"><thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th></tr></thead><tbody>';
   otros.forEach(o => {
-    html += `<tr><td class="mono">${o.fecha}</td><td>${o.concepto}</td><td class="right seg-diff-pos">+${fmt(o.importe)} €</td></tr>`;
+    html += `<tr><td class="mono">${o.fecha}</td><td>${escHtml(o.concepto)}</td><td class="right seg-diff-pos">+${fmt(o.importe)} €</td></tr>`;
   });
   html += `<tr style="background:var(--teal-lt);font-weight:700"><td>TOTAL</td><td></td><td class="right" style="color:var(--teal)">+${fmt(total)} €</td></tr>`;
   html += '</tbody></table>';
@@ -5136,7 +5136,7 @@ function renderSeguimiento() {
     }).join('');
 
     return `<div class="seg-emp-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
-      <span class="seg-emp-name">👤 ${name}</span>
+      <span class="seg-emp-name">👤 ${escHtml(name)}</span>
       <span class="seg-emp-summary">${rows.length} día${rows.length>1?'s':''} · neto <span class="${diffCls}">${(totalDiff>0?'+':'')+fmt(totalDiff)} €</span></span>
     </div>
     <div class="seg-emp-body">
@@ -5402,7 +5402,7 @@ function renderResumen() {
       <td>${fmt(dineroReal)}</td>
       <td>${fmt(totalReal)}</td>
       <td class="${diffCls}">${(diff>=0?'+':'')+fmt(diff)}</td>
-      <td style="text-align:left;font-style:italic;color:var(--muted);font-size:.75rem">${notas}</td>
+      <td style="text-align:left;font-style:italic;color:var(--muted);font-size:.75rem">${escHtml(notas)}</td>
     </tr>`;
   });
   html += '</tbody>';
