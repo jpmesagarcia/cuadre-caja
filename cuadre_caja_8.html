@@ -302,6 +302,18 @@
   }
   .add-emp input:focus { outline: none; border-color: var(--green); background: #fff; }
 
+  /* Ventana «Lista de empleadas» (EV-19) */
+  .emp-ed-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-height: 45vh; overflow-y: auto; }
+  .emp-ed-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; }
+  .emp-ed-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .emp-ed-name small { color: var(--muted); font-size: .72rem; }
+  .emp-ed-btn { width: 28px; height: 28px; flex: none; background: transparent; border: 1px solid var(--border);
+    border-radius: 5px; color: var(--muted); cursor: pointer; font-size: .85rem; }
+  .emp-ed-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+  .emp-ed-btn:disabled { opacity: .3; cursor: default; }
+  .emp-ed-btn.vacio { visibility: hidden; }
+  .emp-ed-add input { flex: 1; min-width: 0; }
   .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
   .section-head h2 {
     font-family: 'Cormorant Garamond', serif; font-size: 1.3rem; font-weight: 600;
@@ -539,6 +551,7 @@
   body.dark .lucia-ticket { background: var(--surface2); }
   body.dark .libro-entry-row { background: var(--surface); border-color: var(--border); }
   body.dark .modal { background: var(--surface); border-color: var(--border); }
+  body.dark .emp-ed-row { background: var(--surface2); border-color: var(--border); }
   body.dark .modal-alert-item.red    { background: #2a1515; border-color: #5a2020; }
   body.dark .modal-alert-item.yellow { background: #2a2510; border-color: #5a5020; }
   body.dark .modal-alert-item.blue   { background: #101a2a; border-color: #203050; }
@@ -1108,7 +1121,10 @@
     <div class="tab-pane active" id="tab-efectivo">
       <div class="section-head">
         <h2>Efectivo por día</h2>
-        <span class="chip" id="chipDays">0 días cargados</span>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="btn-ghost dark btn-sm" onclick="abrirListaEmpleadas()" title="La lista con la que nace cada día nuevo">👥 Lista de empleadas…</button>
+          <span class="chip" id="chipDays">0 días cargados</span>
+        </div>
       </div>
 
       <div id="emptyEfectivo" class="empty-state">
@@ -1653,6 +1669,24 @@
   </div>
 </div>
 
+<!-- Lista de empleadas con la que nace cada día nuevo (EV-19) -->
+<div class="modal-overlay" id="empListaModal">
+  <div class="modal" style="max-width:460px">
+    <h3>👥 Lista de empleadas</h3>
+    <p>Es la lista con la que nace cada día nuevo. <b>No cambia los días que ya existen</b> (en ellos se sigue usando «+ Añadir» y «✕»).
+       Al cargar Farmatic de un mes se crean todos sus días de golpe, así que edita la lista <b>antes</b> de cargarlo.
+       Los cambios se guardan al momento.</p>
+    <div class="emp-ed-list" id="empListaItems"></div>
+    <div class="add-emp emp-ed-add">
+      <input type="text" id="empListaNueva" placeholder="Nombre empleada..." maxlength="30">
+      <button class="btn-ghost dark" onclick="empListaAnadir()">+ Añadir</button>
+    </div>
+    <div class="modal-btn-row" style="margin-top:16px">
+      <button class="btn" onclick="cerrarListaEmpleadas()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Forms: valores que no se han podido leer (E-41, E-42) -->
 <div class="modal-overlay" id="formsAvisosModal">
   <div class="modal" style="max-width:640px">
@@ -1675,7 +1709,7 @@
 const STORAGE_KEY = 'cuadre_caja_v3';
 const CORRUPT_KEY = 'cuadre_caja_v3_corrupto';   // texto original si los datos guardados no se pueden leer
 const BACKUP_KEY  = 'cuadre_caja_ultima_copia';  // fecha (ISO) de la última copia completa descargada
-const BACKUP_SCHEMA   = 5;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía; 4: conciliaciones de transferencias; 5: lo aplicado por la carga del Forms)
+const BACKUP_SCHEMA   = 6;                       // versión de esquema del fichero de copia completa (2: libro de pendientes en vez de days[].luciaTickets; 3: liquidaciones con Lucía; 4: conciliaciones de transferencias; 5: lo aplicado por la carga del Forms; 6: la lista de empleadas con la que nace cada día nuevo)
 const BACKUP_MAX_DIAS = 7;                       // se avisa si la última copia es más antigua que esto
 
 let guardadoFallido = false;        // el último guardado falló
@@ -1708,7 +1742,8 @@ function buildPersistedState() {
     conciliaciones: state.conciliaciones,
     clientes: state.clientes,
     formsData: state.formsData,
-    formsAplicado: state.formsAplicado
+    formsAplicado: state.formsAplicado,
+    defaultEmployees: state.defaultEmployees
   };
 }
 
@@ -2538,6 +2573,9 @@ function loadState() {
     state.clientes        = saved.clientes        || clientesIniciales();
   state.formsData       = saved.formsData       || {};
     state.formsAplicado   = saved.formsAplicado   || {};   // ni los del esquema 4
+    // Lista de empleadas de los días nuevos (EV-19). Los datos y las copias anteriores al esquema 6 no la tienen: se queda la de siempre.
+    if (Array.isArray(saved.defaultEmployees) && saved.defaultEmployees.some(v => typeof v === 'string' && normNombre(v)))
+      state.defaultEmployees = normalizarListaEmpleadas(saved.defaultEmployees);
     return Object.keys(state.farmatic).length > 0;
   } catch(e) {
     console.warn('No se pudo restaurar:', e);
@@ -2667,7 +2705,7 @@ function validarCopiaCompleta(o) {
   if (!esObj(d)) return 'La copia no contiene datos.';
   for (const k of ['farmatic', 'caixa', 'cajero', 'days', 'saldosPorMes', 'libroPorMes', 'formsData', 'formsAplicado', 'arqueoPorMes', 'esperadoPorMes'])
     if (d[k] !== undefined && !esObj(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
-  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'conciliaciones', 'clientes'])
+  for (const k of ['caixaRawRows', 'arqueoHistorico', 'pendientes', 'liquidaciones', 'conciliaciones', 'clientes', 'defaultEmployees'])
     if (d[k] !== undefined && !Array.isArray(d[k])) return 'El campo «' + k + '» no tiene el formato esperado.';
   if (d.libro !== undefined && (d.libro === null || typeof d.libro !== 'object')) return 'El campo «libro» no tiene el formato esperado.';
   if (d.arqueo !== undefined && d.arqueo !== null && !esObj(d.arqueo)) return 'El campo «arqueo» no tiene el formato esperado.';
@@ -2836,7 +2874,8 @@ function estadoPersistidoVacio() {
   return {
     farmatic: {}, caixa: {}, cajero: {}, caixaRawRows: [], days: {}, month: null, libro,
     arqueoPorMes: {}, arqueoHistorico: [], esperadoPorMes: {}, saldosPorMes: {}, libroPorMes: {},
-    pendientes: [], liquidaciones: [], conciliaciones: [], clientes: clientesIniciales(), formsData: {}, formsAplicado: {}
+    pendientes: [], liquidaciones: [], conciliaciones: [], clientes: clientesIniciales(), formsData: {}, formsAplicado: {},
+    defaultEmployees: EMPLEADAS_POR_DEFECTO.slice()
   };
 }
 
@@ -2870,6 +2909,25 @@ function clearState() {
   toast('🗑 Datos borrados');
 }
 
+// Lista con la que nace la app, y con la que vuelve tras «Borrar datos» (EV-19). La lista que se usa es state.defaultEmployees.
+const EMPLEADAS_POR_DEFECTO = ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia','Nacho'];
+
+// Deja una lista de nombres usable: solo textos, sin espacios de más, hasta 30 letras (como el campo «+ Añadir»), sin repetidos
+// (sin distinguir mayúsculas ni tildes) y siempre con Lucía: su fila es «Pendiente de pago», y sin ella los tickets
+// pendientes no contarían como efectivo del día.
+function normalizarListaEmpleadas(arr) {
+  const vistos = new Set(), out = [];
+  (Array.isArray(arr) ? arr : []).forEach(v => {
+    if (typeof v !== 'string') return;
+    const nm = v.replace(/\s+/g, ' ').trim().slice(0, 30).trim();
+    const k = normNombre(nm);
+    if (!k || vistos.has(k)) return;
+    vistos.add(k); out.push(nm);
+  });
+  if (!vistos.has('lucia')) out.push('Lucía');
+  return out;
+}
+
 const state = {
   farmatic: {},
   caixa: {},
@@ -2889,7 +2947,7 @@ const state = {
   clientes: clientesIniciales(),   // [{nombre, entidad}]: clientes de los pendientes; entidad = paga por transferencia (E-29)
   formsData: {},       // ds -> {empleada: efectivo que apuntó en el Forms}: lo último leído, para Seguimiento
   formsAplicado: {},   // ds -> lo que la carga del Forms ha puesto en cada día (ver «Forms: mezcla por empleada»)
-  defaultEmployees: ['Raquel','Cristina','Elena','Ana','Diana','María','Sofía','Lucía','Alicia','Nacho'],   // solo para los días que se crean de aquí en adelante; los ya creados conservan su lista
+  defaultEmployees: EMPLEADAS_POR_DEFECTO.slice(),   // solo para los días que se crean de aquí en adelante; los ya creados conservan su lista. Editable desde la app y guardada (EV-19)
   libro: []  // [{concept, amount, sign, column}] — column: 'med'|'gastos'|'nomina'
 };
 
@@ -3825,6 +3883,55 @@ function addEmployee() {
   document.getElementById('newEmpName').value = '';
   saveState();
   renderDayDetail(state.selectedDay);
+}
+
+// ─── Lista de empleadas de los días nuevos (EV-19) ─────────────────────────
+// Se edita aquí y se guarda en el estado (y en la copia completa). Solo afecta a los días que se creen después:
+// los que ya existen conservan su lista. Lucía va siempre (su fila es «Pendiente de pago»): no se quita.
+function abrirListaEmpleadas() {
+  renderListaEmpleadas();
+  document.getElementById('empListaModal').classList.add('show');
+  setTimeout(() => document.getElementById('empListaNueva')?.focus(), 50);
+}
+function cerrarListaEmpleadas() {
+  document.getElementById('empListaModal').classList.remove('show');
+}
+function renderListaEmpleadas() {
+  const l = state.defaultEmployees;
+  document.getElementById('empListaItems').innerHTML = l.map((n, i) => {
+    const sube = `<button class="emp-ed-btn" title="Subir" ${i === 0 ? 'disabled' : ''} onclick="empListaMover(${i},-1)">↑</button>`;
+    const baja = `<button class="emp-ed-btn" title="Bajar" ${i === l.length - 1 ? 'disabled' : ''} onclick="empListaMover(${i},1)">↓</button>`;
+    const quita = esLucia(n)
+      ? `<button class="emp-ed-btn vacio" tabindex="-1" aria-hidden="true" disabled>✕</button>`
+      : `<button class="emp-ed-btn" title="Quitar de la lista" onclick="empListaQuitar(${i})">✕</button>`;
+    const nota = esLucia(n) ? ' <small>· su fila es «Pendiente de pago»; va siempre</small>' : '';
+    return `<div class="emp-ed-row"><span class="emp-ed-name">${escHtml(n)}${nota}</span>${sube}${baja}${quita}</div>`;
+  }).join('');
+}
+function empListaAnadir() {
+  const inp = document.getElementById('empListaNueva');
+  const nm = inp.value.replace(/\s+/g, ' ').trim();
+  if (!nm) return;
+  if (state.defaultEmployees.some(n => normNombre(n) === normNombre(nm))) { toast('⚠️ «' + nm + '» ya está en la lista'); return; }
+  state.defaultEmployees.push(nm);
+  inp.value = '';
+  saveState();
+  renderListaEmpleadas();
+  inp.focus();
+}
+function empListaQuitar(i) {
+  const n = state.defaultEmployees[i];
+  if (n === undefined || esLucia(n)) return;
+  state.defaultEmployees.splice(i, 1);
+  saveState();
+  renderListaEmpleadas();
+}
+function empListaMover(i, d) {
+  const l = state.defaultEmployees, j = i + d;
+  if (j < 0 || j >= l.length) return;
+  [l[i], l[j]] = [l[j], l[i]];
+  saveState();
+  renderListaEmpleadas();
 }
 
 function dayChanged() {
@@ -5316,8 +5423,14 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     document.getElementById('luciaAmount')?.focus();
   }
+  // Enter en la lista de empleadas → añadir
+  if (e.key === 'Enter' && document.activeElement.id === 'empListaNueva') {
+    e.preventDefault();
+    empListaAnadir();
+  }
   // Escape → cerrar modal
   if (e.key === 'Escape') {
+    if (document.getElementById('empListaModal')?.classList.contains('show')) cerrarListaEmpleadas();
     const modal = document.getElementById('validModal');
     if (modal?.classList.contains('show')) closeModal();
     if (document.getElementById('formsAvisosModal')?.classList.contains('show')) cerrarAvisosForms();
